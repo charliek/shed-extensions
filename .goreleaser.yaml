@@ -39,22 +39,21 @@ builds:
       - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
       - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
 
-  # Phase 2: uncomment when shed-aws-proxy is implemented
-  # - id: shed-aws-proxy
-  #   binary: shed-aws-proxy
-  #   main: ./cmd/shed-aws-proxy
-  #   env:
-  #     - CGO_ENABLED=0
-  #   goos:
-  #     - linux
-  #   goarch:
-  #     - amd64
-  #     - arm64
-  #   ldflags:
-  #     - -s -w
-  #     - -X github.com/charliek/shed-extensions/internal/version.Version={{.Version}}
-  #     - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
-  #     - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
+  - id: shed-aws-proxy
+    binary: shed-aws-proxy
+    main: ./cmd/shed-aws-proxy
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/charliek/shed-extensions/internal/version.Version={{.Version}}
+      - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
 
 archives:
   - id: shed-host-agent
@@ -72,6 +71,15 @@ archives:
     formats:
       - tar.gz
     name_template: "shed-ssh-agent_{{ .Os }}_{{ .Arch }}"
+    files:
+      - none*
+
+  - id: shed-aws-proxy
+    ids:
+      - shed-aws-proxy
+    formats:
+      - tar.gz
+    name_template: "shed-aws-proxy_{{ .Os }}_{{ .Arch }}"
     files:
       - none*
 

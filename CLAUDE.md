@@ -23,10 +23,12 @@ Tools are managed via [mise](https://mise.jdx.dev/) — run `mise install` to se
 
 ## Project Structure
 
-- `cmd/shed-host-agent/` — Host-side daemon (macOS): subscribes to shed-server plugin bus, handles credential operations
+- `cmd/shed-host-agent/` — Host-side daemon (macOS): subscribes to shed-server plugin bus, handles SSH and AWS credential operations
 - `cmd/shed-ssh-agent/` — Guest-side SSH agent adapter (Linux): translates SSH agent protocol to message bus requests
+- `cmd/shed-aws-proxy/` — Guest-side AWS credential proxy (Linux): serves AWS container credential endpoint, translates to message bus requests
 - `internal/protocol/` — Shared envelope and payload types (JSON wire format matches shed's plugin types)
 - `internal/sshagent/` — SSH agent.Agent implementation that publishes to the message bus
+- `internal/awsproxy/` — AWS credential HTTP endpoint (passthrough to bus)
 - `internal/hostclient/` — SSE client for shed-server's plugin API
 - `internal/version/` — Build-time version information
 - `image/` — Base image overlay files (systemd units, environment config)
@@ -49,7 +51,7 @@ This project hooks into shed-server's plugin message bus:
 - Guest binaries POST to `http://127.0.0.1:498/v1/publish` (shed-agent's HTTP endpoint)
 - Host binary subscribes via SSE at `GET /api/plugins/listeners/{namespace}/messages`
 - Host binary responds via `POST /api/plugins/listeners/{namespace}/respond`
-- Namespaces: `ssh-agent` (Phase 1), `aws-credentials` (Phase 2)
+- Namespaces: `ssh-agent`, `aws-credentials`
 
 ## Documentation
 

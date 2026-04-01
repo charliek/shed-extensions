@@ -92,6 +92,7 @@ nav:
       - Quick Start: getting-started/quick-start.md
   - Reference:
       - SSH Agent: reference/ssh-agent.md
+      - AWS Credentials: reference/aws-credentials.md
       - Configuration: reference/configuration.md
   - Development:
       - Setup: development/setup.md

@@ -1,7 +1,7 @@
 // shed-host-agent is the host-side daemon that handles credential operations
 // for shed microVMs. It subscribes to shed-server's plugin message bus and
-// performs SSH signing (and in Phase 2, AWS credential vending) using the
-// developer's local credentials.
+// performs SSH signing and AWS credential vending using the developer's local
+// credentials.
 package main
 
 import (
@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/charliek/shed-extensions/internal/hostclient"
@@ -31,14 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize SSH backend
-	backend, err := ResolveSSHBackend(cfg.SSH, logger)
-	if err != nil {
-		logger.Error("failed to initialize SSH backend", "error", err)
-		os.Exit(1)
-	}
-
-	// Initialize host client
+	// Initialize host client (shared by all handlers)
 	client := hostclient.New(
 		hostclient.WithServerURL(cfg.Server),
 		hostclient.WithLogger(logger),
@@ -54,10 +48,7 @@ func main() {
 	audit := NewAuditLogger(cfg.Logging, logger)
 	defer audit.Close()
 
-	// Create SSH handler
-	sshHandler := NewSSHHandler(backend, client, approval, audit, logger)
-
-	// Run with graceful shutdown
+	// Graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -70,8 +61,38 @@ func main() {
 		cancel()
 	}()
 
+	// Initialize SSH backend
+	sshBackend, err := ResolveSSHBackend(cfg.SSH, logger)
+	if err != nil {
+		logger.Error("failed to initialize SSH backend", "error", err)
+		os.Exit(1)
+	}
+
+	var wg sync.WaitGroup
+
+	// Start SSH handler
+	sshHandler := NewSSHHandler(sshBackend, client, approval, audit, logger)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sshHandler.Run(ctx)
+	}()
+
+	// Start AWS handler (optional — don't fail if AWS isn't configured)
+	awsBackend, err := NewSTSBackend(ctx, cfg.AWS, logger)
+	if err != nil {
+		logger.Warn("AWS handler disabled", "error", err)
+	} else {
+		awsHandler := NewAWSHandler(awsBackend, client, audit, logger)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			awsHandler.Run(ctx)
+		}()
+	}
+
 	logger.Info("subscribing to namespaces", "server", cfg.Server)
-	sshHandler.Run(ctx)
+	wg.Wait()
 
 	logger.Info("stopped")
 }

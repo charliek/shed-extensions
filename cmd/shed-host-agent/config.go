@@ -13,7 +13,22 @@ import (
 type Config struct {
 	Server  string    `yaml:"server"`
 	SSH     SSHConfig `yaml:"ssh"`
+	AWS     AWSConfig `yaml:"aws"`
 	Logging LogConfig `yaml:"logging"`
+}
+
+// AWSConfig controls the AWS credential handler behavior.
+type AWSConfig struct {
+	SourceProfile      string                   `yaml:"source_profile"`
+	DefaultRole        string                   `yaml:"default_role"`
+	SessionDuration    string                   `yaml:"session_duration"`
+	CacheRefreshBefore string                   `yaml:"cache_refresh_before"`
+	Sheds              map[string]ShedAWSConfig `yaml:"sheds"`
+}
+
+// ShedAWSConfig holds per-shed AWS role overrides.
+type ShedAWSConfig struct {
+	Role string `yaml:"role"`
 }
 
 // SSHConfig controls the SSH agent handler behavior.
@@ -45,6 +60,11 @@ func DefaultConfig() Config {
 				Policy:     "per-session",
 				SessionTTL: "4h",
 			},
+		},
+		AWS: AWSConfig{
+			SourceProfile:      "default",
+			SessionDuration:    "1h",
+			CacheRefreshBefore: "5m",
 		},
 		Logging: LogConfig{
 			Enabled: true,

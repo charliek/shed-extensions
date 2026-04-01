@@ -51,6 +51,52 @@ logging:
 	}
 }
 
+func TestLoadConfigAWS(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	content := `
+server: http://localhost:8080
+aws:
+  source_profile: staging
+  default_role: arn:aws:iam::123456789:role/dev
+  session_duration: 2h
+  cache_refresh_before: 10m
+  sheds:
+    my-service:
+      role: arn:aws:iam::123456789:role/my-service
+    tests:
+      role: arn:aws:iam::123456789:role/readonly
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if cfg.AWS.SourceProfile != "staging" {
+		t.Errorf("aws.source_profile: got %q, want %q", cfg.AWS.SourceProfile, "staging")
+	}
+	if cfg.AWS.DefaultRole != "arn:aws:iam::123456789:role/dev" {
+		t.Errorf("aws.default_role: got %q", cfg.AWS.DefaultRole)
+	}
+	if cfg.AWS.SessionDuration != "2h" {
+		t.Errorf("aws.session_duration: got %q, want %q", cfg.AWS.SessionDuration, "2h")
+	}
+	if cfg.AWS.CacheRefreshBefore != "10m" {
+		t.Errorf("aws.cache_refresh_before: got %q, want %q", cfg.AWS.CacheRefreshBefore, "10m")
+	}
+	if len(cfg.AWS.Sheds) != 2 {
+		t.Fatalf("aws.sheds: got %d entries, want 2", len(cfg.AWS.Sheds))
+	}
+	if cfg.AWS.Sheds["my-service"].Role != "arn:aws:iam::123456789:role/my-service" {
+		t.Errorf("aws.sheds.my-service.role: got %q", cfg.AWS.Sheds["my-service"].Role)
+	}
+}
+
 func TestLoadConfigDefaults(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
@@ -76,6 +122,16 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.Logging.Enabled != true {
 		t.Error("logging.enabled default: got false, want true")
+	}
+	// AWS defaults
+	if cfg.AWS.SourceProfile != "default" {
+		t.Errorf("aws.source_profile default: got %q, want %q", cfg.AWS.SourceProfile, "default")
+	}
+	if cfg.AWS.SessionDuration != "1h" {
+		t.Errorf("aws.session_duration default: got %q, want %q", cfg.AWS.SessionDuration, "1h")
+	}
+	if cfg.AWS.CacheRefreshBefore != "5m" {
+		t.Errorf("aws.cache_refresh_before default: got %q, want %q", cfg.AWS.CacheRefreshBefore, "5m")
 	}
 }
 

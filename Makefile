@@ -18,6 +18,8 @@ build-host:
 build-guest:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-ssh-agent ./cmd/shed-ssh-agent
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-ssh-agent ./cmd/shed-ssh-agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-aws-proxy ./cmd/shed-aws-proxy
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-aws-proxy ./cmd/shed-aws-proxy
 
 # Run all unit tests
 test:
