@@ -7,6 +7,7 @@ const (
 	// AWS operations
 	AWSOpGetCredentials = "get_credentials"
 	AWSOpPing           = "ping"
+	AWSOpStatus         = "status"
 
 	// AWS error codes
 	AWSCodeRoleNotFound     = "ROLE_NOT_FOUND"
@@ -37,6 +38,18 @@ type AWSPingRequest struct {
 // AWSPingResponse is the payload for a health check pong.
 type AWSPingResponse struct {
 	Status string `json:"status"`
+}
+
+// AWSStatusRequest is the payload for a status query.
+type AWSStatusRequest struct {
+	Operation string `json:"operation"`
+}
+
+// AWSStatusResponse is the payload for a status response with detail.
+type AWSStatusResponse struct {
+	Connected   bool   `json:"connected"`
+	Role        string `json:"role"`
+	CachedUntil string `json:"cached_until,omitempty"` // RFC3339
 }
 
 // AWSErrorResponse is the payload for an error response.

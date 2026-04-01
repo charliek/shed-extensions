@@ -5,9 +5,10 @@ const (
 	NamespaceSSHAgent = "ssh-agent"
 
 	// SSH operations
-	SSHOpList = "list"
-	SSHOpSign = "sign"
-	SSHOpPing = "ping"
+	SSHOpList   = "list"
+	SSHOpSign   = "sign"
+	SSHOpPing   = "ping"
+	SSHOpStatus = "status"
 
 	// SSH error codes
 	SSHCodeKeyNotFound = "KEY_NOT_FOUND"
@@ -55,6 +56,18 @@ type SSHKeyInfo struct {
 // SSHPingResponse is the payload for a health check pong.
 type SSHPingResponse struct {
 	Status string `json:"status"`
+}
+
+// SSHStatusRequest is the payload for a status query.
+type SSHStatusRequest struct {
+	Operation string `json:"operation"`
+}
+
+// SSHStatusResponse is the payload for a status response with detail.
+type SSHStatusResponse struct {
+	Connected bool   `json:"connected"`
+	Mode      string `json:"mode"` // "agent-forward" or "local-keys"
+	KeyCount  int    `json:"key_count"`
 }
 
 // SSHErrorResponse is the payload for an error response.

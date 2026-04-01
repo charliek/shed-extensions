@@ -93,10 +93,14 @@ nav:
   - Reference:
       - SSH Agent: reference/ssh-agent.md
       - AWS Credentials: reference/aws-credentials.md
+      - Status CLI: reference/status-cli.md
       - Configuration: reference/configuration.md
+  - Security:
+      - Security Posture: security-posture.md
   - Development:
       - Setup: development/setup.md
       - Architecture: development/architecture.md
+  - Demo: demo.md
 
 extra:
   social:

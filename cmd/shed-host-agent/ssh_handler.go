@@ -67,6 +67,8 @@ func (h *SSHHandler) handleMessage(ctx context.Context, env *protocol.Envelope) 
 		h.handleSign(ctx, env, shedName)
 	case protocol.SSHOpPing:
 		h.handlePing(ctx, env, shedName)
+	case protocol.SSHOpStatus:
+		h.handleStatus(ctx, env, shedName)
 	default:
 		h.logger.Warn("unknown operation", "operation", op.Operation, "shed", shedName)
 		h.sendError(ctx, env, fmt.Sprintf("unknown operation: %s", op.Operation), protocol.SSHCodeInternal)
@@ -156,6 +158,22 @@ func (h *SSHHandler) handlePing(ctx context.Context, env *protocol.Envelope, she
 	resp := protocol.SSHPingResponse{Status: "ok"}
 	h.sendResponse(ctx, env, resp)
 	h.logger.Debug("ping", "shed", shedName)
+}
+
+func (h *SSHHandler) handleStatus(ctx context.Context, env *protocol.Envelope, shedName string) {
+	keys, err := h.backend.List()
+	keyCount := 0
+	if err == nil {
+		keyCount = len(keys)
+	}
+
+	resp := protocol.SSHStatusResponse{
+		Connected: true,
+		Mode:      h.backend.Mode(),
+		KeyCount:  keyCount,
+	}
+	h.sendResponse(ctx, env, resp)
+	h.logger.Debug("status", "mode", resp.Mode, "keys", keyCount, "shed", shedName)
 }
 
 func (h *SSHHandler) sendResponse(ctx context.Context, req *protocol.Envelope, payload any) {

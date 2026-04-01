@@ -55,6 +55,22 @@ builds:
       - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
       - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
 
+  - id: shed-ext
+    binary: shed-ext
+    main: ./cmd/shed-ext
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/charliek/shed-extensions/internal/version.Version={{.Version}}
+      - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
+
 archives:
   - id: shed-host-agent
     ids:
@@ -80,6 +96,15 @@ archives:
     formats:
       - tar.gz
     name_template: "shed-aws-proxy_{{ .Os }}_{{ .Arch }}"
+    files:
+      - none*
+
+  - id: shed-ext
+    ids:
+      - shed-ext
+    formats:
+      - tar.gz
+    name_template: "shed-ext_{{ .Os }}_{{ .Arch }}"
     files:
       - none*
 

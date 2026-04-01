@@ -17,6 +17,9 @@ type SSHBackend interface {
 
 	// Sign signs the data with the specified key.
 	Sign(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error)
+
+	// Mode returns the backend mode name ("agent-forward" or "local-keys").
+	Mode() string
 }
 
 // ResolveSSHBackend auto-detects and returns the appropriate SSH backend.

@@ -81,6 +81,8 @@ func (b *localKeysBackend) List() ([]*agent.Key, error) {
 	return keys, nil
 }
 
+func (b *localKeysBackend) Mode() string { return "local-keys" }
+
 func (b *localKeysBackend) Sign(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
 	for _, k := range b.keys {
 		if !keysEqual(key, k.pubKey) {

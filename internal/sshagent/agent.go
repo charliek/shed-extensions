@@ -3,38 +3,23 @@
 package sshagent
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/charliek/shed-extensions/internal/busclient"
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
-
-const (
-	defaultPublishURL = "http://127.0.0.1:498/v1/publish"
-	requestTimeout    = 3 * time.Second
-)
-
-// publishRequest is the body sent to the shed-agent /v1/publish endpoint.
-type publishRequest struct {
-	Namespace string          `json:"namespace"`
-	Type      string          `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-}
 
 // Agent implements ssh/agent.Agent by forwarding operations through the
 // shed plugin message bus.
 type Agent struct {
-	publishURL string
-	httpClient *http.Client
+	bus *busclient.Client
 }
 
 // Option configures an Agent.
@@ -43,15 +28,14 @@ type Option func(*Agent)
 // WithPublishURL sets the shed-agent publish endpoint URL.
 func WithPublishURL(url string) Option {
 	return func(a *Agent) {
-		a.publishURL = url
+		a.bus.PublishURL = url
 	}
 }
 
 // New creates a new Agent that publishes requests to the given URL.
 func New(opts ...Option) *Agent {
 	a := &Agent{
-		publishURL: defaultPublishURL,
-		httpClient: &http.Client{Timeout: requestTimeout},
+		bus: busclient.New(busclient.DefaultPublishURL, busclient.DefaultTimeout),
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -67,7 +51,7 @@ func (a *Agent) List() ([]*agent.Key, error) {
 		return nil, fmt.Errorf("marshaling list request: %w", err)
 	}
 
-	respPayload, err := a.publish(payload)
+	respPayload, err := a.bus.Publish(context.Background(), protocol.NamespaceSSHAgent, payload)
 	if err != nil {
 		return nil, fmt.Errorf("list request failed: %w", err)
 	}
@@ -122,7 +106,7 @@ func (a *Agent) signWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 		return nil, fmt.Errorf("marshaling sign request: %w", err)
 	}
 
-	respPayload, err := a.publish(payload)
+	respPayload, err := a.bus.Publish(context.Background(), protocol.NamespaceSSHAgent, payload)
 	if err != nil {
 		return nil, fmt.Errorf("sign request failed: %w", err)
 	}
@@ -149,66 +133,9 @@ func (a *Agent) signWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 	}, nil
 }
 
-// publish sends a request to the shed-agent publish endpoint and returns the
-// response envelope's payload.
-func (a *Agent) publish(payload json.RawMessage) (json.RawMessage, error) {
-	req := publishRequest{
-		Namespace: protocol.NamespaceSSHAgent,
-		Type:      string(protocol.MessageTypeRequest),
-		Payload:   payload,
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling publish request: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.publishURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("creating HTTP request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("publishing to bus: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("publish failed (status %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	var env protocol.Envelope
-	if err := json.Unmarshal(respBody, &env); err != nil {
-		return nil, fmt.Errorf("parsing response envelope: %w", err)
-	}
-
-	return env.Payload, nil
-}
-
 // Ping sends a health check ping and returns nil if the host agent responds.
 func (a *Agent) Ping(timeout time.Duration) error {
-	origTimeout := a.httpClient.Timeout
-	a.httpClient.Timeout = timeout
-	defer func() { a.httpClient.Timeout = origTimeout }()
-
-	req := protocol.SSHPingRequest{Operation: protocol.SSHOpPing}
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshaling ping: %w", err)
-	}
-
-	_, err = a.publish(payload)
-	return err
+	return a.bus.Ping(context.Background(), protocol.NamespaceSSHAgent, timeout)
 }
 
 // Unsupported agent.ExtendedAgent methods — the SSH agent protocol requires

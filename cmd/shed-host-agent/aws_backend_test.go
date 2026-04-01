@@ -17,6 +17,10 @@ type mockAWSBackend struct {
 	mu      sync.Mutex
 }
 
+func (m *mockAWSBackend) Status(_ string) (string, *time.Time) {
+	return "arn:aws:iam::123:role/mock", nil
+}
+
 func (m *mockAWSBackend) GetCredentials(_ context.Context, shedName string) (*AWSCachedCredentials, error) {
 	m.mu.Lock()
 	m.callLog = append(m.callLog, shedName)

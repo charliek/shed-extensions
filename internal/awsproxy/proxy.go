@@ -5,29 +5,15 @@
 package awsproxy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/charliek/shed-extensions/internal/busclient"
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
-
-const (
-	defaultPublishURL = "http://127.0.0.1:498/v1/publish"
-	requestTimeout    = 3 * time.Second
-)
-
-// publishRequest is the body sent to the shed-agent /v1/publish endpoint.
-type publishRequest struct {
-	Namespace string          `json:"namespace"`
-	Type      string          `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-}
 
 // awsSDKResponse is the exact JSON format the AWS SDK expects from a
 // container credential endpoint. Field names must match exactly.
@@ -48,9 +34,8 @@ type awsSDKErrorResponse struct {
 // Proxy handles AWS credential requests from the SDK and translates them
 // into message bus requests.
 type Proxy struct {
-	publishURL string
-	httpClient *http.Client
-	logger     *slog.Logger
+	bus    *busclient.Client
+	logger *slog.Logger
 }
 
 // Option configures a Proxy.
@@ -59,7 +44,7 @@ type Option func(*Proxy)
 // WithPublishURL sets the shed-agent publish endpoint URL.
 func WithPublishURL(url string) Option {
 	return func(p *Proxy) {
-		p.publishURL = url
+		p.bus.PublishURL = url
 	}
 }
 
@@ -73,9 +58,8 @@ func WithLogger(logger *slog.Logger) Option {
 // New creates a new Proxy with the given options.
 func New(opts ...Option) *Proxy {
 	p := &Proxy{
-		publishURL: defaultPublishURL,
-		httpClient: &http.Client{Timeout: requestTimeout},
-		logger:     slog.Default(),
+		bus:    busclient.New(busclient.DefaultPublishURL, busclient.DefaultTimeout),
+		logger: slog.Default(),
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -97,7 +81,7 @@ func (p *Proxy) HandleCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respPayload, err := p.publish(r.Context(), payload)
+	respPayload, err := p.bus.Publish(r.Context(), protocol.NamespaceAWSCredentials, payload)
 	if err != nil {
 		p.logger.Error("credential request failed", "error", err)
 		p.writeError(w, http.StatusServiceUnavailable,
@@ -136,65 +120,9 @@ func (p *Proxy) HandleCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// publish sends a request to the shed-agent publish endpoint and returns the
-// response envelope's payload.
-func (p *Proxy) publish(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
-	req := publishRequest{
-		Namespace: protocol.NamespaceAWSCredentials,
-		Type:      string(protocol.MessageTypeRequest),
-		Payload:   payload,
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling publish request: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.publishURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("creating HTTP request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("publishing to bus: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("publish failed (status %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	var env protocol.Envelope
-	if err := json.Unmarshal(respBody, &env); err != nil {
-		return nil, fmt.Errorf("parsing response envelope: %w", err)
-	}
-
-	return env.Payload, nil
-}
-
 // Ping sends a health check ping and returns nil if the host agent responds.
 func (p *Proxy) Ping(timeout time.Duration) error {
-	req := protocol.AWSPingRequest{Operation: protocol.AWSOpPing}
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshaling ping: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	_, err = p.publish(ctx, payload)
-	return err
+	return p.bus.Ping(context.Background(), protocol.NamespaceAWSCredentials, timeout)
 }
 
 func (p *Proxy) writeError(w http.ResponseWriter, status int, msg, hint string) {

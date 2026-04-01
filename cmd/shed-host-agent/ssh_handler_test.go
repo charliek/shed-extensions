@@ -27,6 +27,8 @@ type mockBackend struct {
 	signErr error
 }
 
+func (m *mockBackend) Mode() string { return "mock" }
+
 func (m *mockBackend) List() ([]*agent.Key, error) {
 	if m.listErr != nil {
 		return nil, m.listErr

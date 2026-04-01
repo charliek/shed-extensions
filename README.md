@@ -79,6 +79,9 @@ Use the extensions-enabled shed base image — guest-side binaries and systemd u
 From inside a shed:
 
 ```bash
+# Check extension status
+shed-ext status
+
 # SSH — sign with your host key
 ssh -T git@github.com
 

@@ -15,6 +15,9 @@ import (
 type AWSBackend interface {
 	// GetCredentials returns temporary AWS credentials for the given shed.
 	GetCredentials(ctx context.Context, shedName string) (*AWSCachedCredentials, error)
+
+	// Status returns the role and cache expiration for the given shed.
+	Status(shedName string) (role string, cachedUntil *time.Time)
 }
 
 // AWSCachedCredentials holds a cached set of STS temporary credentials.
@@ -130,4 +133,16 @@ func (b *stsBackend) resolveRole(shedName string) string {
 		return shedCfg.Role
 	}
 	return b.cfg.DefaultRole
+}
+
+func (b *stsBackend) Status(shedName string) (string, *time.Time) {
+	role := b.resolveRole(shedName)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if cached, ok := b.cache[shedName]; ok {
+		return role, &cached.Expiration
+	}
+	return role, nil
 }

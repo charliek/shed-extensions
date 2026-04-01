@@ -58,6 +58,8 @@ func (h *AWSHandler) handleMessage(ctx context.Context, env *protocol.Envelope) 
 		h.handleGetCredentials(ctx, env, shedName)
 	case protocol.AWSOpPing:
 		h.handlePing(ctx, env, shedName)
+	case protocol.AWSOpStatus:
+		h.handleStatus(ctx, env, shedName)
 	default:
 		h.logger.Warn("unknown operation", "operation", op.Operation, "shed", shedName)
 		h.sendError(ctx, env, fmt.Sprintf("unknown operation: %s", op.Operation), protocol.AWSCodeInternal)
@@ -89,6 +91,21 @@ func (h *AWSHandler) handlePing(ctx context.Context, env *protocol.Envelope, she
 	resp := protocol.AWSPingResponse{Status: "ok"}
 	h.sendResponse(ctx, env, resp)
 	h.logger.Debug("ping", "shed", shedName)
+}
+
+func (h *AWSHandler) handleStatus(ctx context.Context, env *protocol.Envelope, shedName string) {
+	role, cachedUntil := h.backend.Status(shedName)
+
+	resp := protocol.AWSStatusResponse{
+		Connected: true,
+		Role:      role,
+	}
+	if cachedUntil != nil {
+		resp.CachedUntil = cachedUntil.Format("2006-01-02T15:04:05Z")
+	}
+
+	h.sendResponse(ctx, env, resp)
+	h.logger.Debug("status", "role", role, "shed", shedName)
 }
 
 func (h *AWSHandler) sendResponse(ctx context.Context, req *protocol.Envelope, payload any) {

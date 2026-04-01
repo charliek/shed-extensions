@@ -98,3 +98,9 @@ None. The opinionated base image configures everything:
 |------|---------|-------------|
 | `--port` | `499` | HTTP listen port |
 | `--publish-url` | `http://127.0.0.1:498/v1/publish` | shed-agent publish endpoint |
+
+### shed-ext
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--publish-url` | `http://127.0.0.1:498/v1/publish` | shed-agent publish endpoint |

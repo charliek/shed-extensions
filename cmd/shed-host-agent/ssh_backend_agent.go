@@ -51,6 +51,8 @@ func (b *agentForwardBackend) Sign(key ssh.PublicKey, data []byte, flags agent.S
 	return a.Sign(key, data)
 }
 
+func (b *agentForwardBackend) Mode() string { return "agent-forward" }
+
 // connect opens a new connection to the host SSH agent.
 // Each operation gets a fresh connection for simplicity and reliability.
 func (b *agentForwardBackend) connect() (agent.ExtendedAgent, net.Conn, error) {
