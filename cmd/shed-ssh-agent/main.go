@@ -85,6 +85,7 @@ func main() {
 			continue
 		}
 		go func() {
+			defer conn.Close()
 			if err := agent.ServeAgent(a, conn); err != nil {
 				logger.Debug("connection closed", "error", err)
 			}

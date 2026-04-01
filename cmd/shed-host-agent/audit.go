@@ -82,7 +82,10 @@ func (a *AuditLogger) Log(shed, namespace, operation, result, detail, approval s
 
 // Close closes the audit log file.
 func (a *AuditLogger) Close() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.file != nil {
 		a.file.Close()
+		a.file = nil
 	}
 }

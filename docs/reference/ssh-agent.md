@@ -80,7 +80,7 @@ ssh:
 
 Credential requests use a 3-second timeout. On timeout, `shed-ssh-agent` logs an actionable error:
 
-```
+```text
 ERROR: ssh-agent sign request timed out — shed-host-agent may not be running.
 ```
 

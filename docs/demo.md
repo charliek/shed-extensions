@@ -44,7 +44,7 @@ shed-ext status
 ```
 
 Expected output:
-```
+```text
 ssh-agent:       ✓ connected (agent-forward mode, 3 keys available)
 aws-credentials: ✓ connected (role: arn:aws:iam::123:role/dev, cached until 15:45 UTC)
 ```

@@ -12,14 +12,14 @@ shed-ext status
 
 ### All Connected
 
-```
+```text
 ssh-agent:       ✓ connected (agent-forward mode, 3 keys available)
 aws-credentials: ✓ connected (role: arn:aws:iam::123:role/dev, cached until 15:45 UTC)
 ```
 
 ### Partially Connected
 
-```
+```text
 ssh-agent:       ✓ connected (local-keys mode, 1 key available)
 aws-credentials: ✗ not connected (shed-host-agent not responding)
 
@@ -29,7 +29,7 @@ Hint: start shed-host-agent on your Mac:
 
 ### Not Connected
 
-```
+```text
 ssh-agent:       ✗ not connected (shed-host-agent not responding)
 aws-credentials: ✗ not connected (shed-host-agent not responding)
 

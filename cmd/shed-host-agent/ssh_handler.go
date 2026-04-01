@@ -79,8 +79,8 @@ func (h *SSHHandler) handleList(ctx context.Context, env *protocol.Envelope, she
 	keys, err := h.backend.List()
 	if err != nil {
 		h.logger.Error("list keys failed", "error", err, "shed", shedName)
-		h.sendError(ctx, env, err.Error(), protocol.SSHCodeInternal)
-		h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpList, "error", "", "none")
+		h.sendError(ctx, env, "key listing failed", protocol.SSHCodeInternal)
+		h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpList, "error", err.Error(), "none")
 		return
 	}
 
@@ -140,7 +140,7 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *protocol.Envelope, she
 	sig, err := h.backend.Sign(pubKey, data, agent.SignatureFlags(req.Flags))
 	if err != nil {
 		h.logger.Error("sign failed", "error", err, "shed", shedName)
-		h.sendError(ctx, env, err.Error(), protocol.SSHCodeSignFailed)
+		h.sendError(ctx, env, "sign operation failed", protocol.SSHCodeSignFailed)
 		h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "error", pubKey.Type(), approvalResult)
 		return
 	}
