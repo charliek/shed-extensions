@@ -28,7 +28,7 @@
 
     aws:
       source_profile: default
-      default_role: arn:aws:iam::123456789:role/your-dev-role
+      default_role: arn:aws:iam::123456789012:role/your-dev-role
 
     logging:
       enabled: true
@@ -77,13 +77,13 @@ Different sheds can assume different IAM roles:
 ```yaml
 aws:
   source_profile: default
-  default_role: arn:aws:iam::123456789:role/dev
+  default_role: arn:aws:iam::123456789012:role/dev
 
   sheds:
     my-service:
-      role: arn:aws:iam::123456789:role/dev
+      role: arn:aws:iam::123456789012:role/dev
     integration-tests:
-      role: arn:aws:iam::123456789:role/staging-readonly
+      role: arn:aws:iam::123456789012:role/staging-readonly
 ```
 
 ## What Happens

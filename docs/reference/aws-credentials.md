@@ -60,13 +60,13 @@ Each shed maps to a specific IAM role via host-side configuration. The VM doesn'
 ```yaml
 aws:
   source_profile: default
-  default_role: arn:aws:iam::123456789:role/smartthings-dev
+  default_role: arn:aws:iam::123456789012:role/smartthings-dev
 
   sheds:
     my-service:
-      role: arn:aws:iam::123456789:role/smartthings-dev
+      role: arn:aws:iam::123456789012:role/smartthings-dev
     integration-tests:
-      role: arn:aws:iam::123456789:role/smartthings-staging-readonly
+      role: arn:aws:iam::123456789012:role/smartthings-staging-readonly
 ```
 
 ## Message Format

@@ -28,6 +28,11 @@ func NewMockPublishServer(t *testing.T, expectedNamespace string, handler func(j
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if r.Method != http.MethodPost {
+			t.Errorf("unexpected method: %s, want POST", r.Method)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
 		var pubReq PublishRequest
 		if err := json.NewDecoder(r.Body).Decode(&pubReq); err != nil {

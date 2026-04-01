@@ -20,16 +20,16 @@ ssh:
 
 aws:
   source_profile: default
-  default_role: arn:aws:iam::123456789:role/smartthings-dev
+  default_role: arn:aws:iam::123456789012:role/smartthings-dev
   session_duration: 1h
   cache_refresh_before: 5m
 
   # Per-shed role overrides
   sheds:
     my-service:
-      role: arn:aws:iam::123456789:role/smartthings-dev
+      role: arn:aws:iam::123456789012:role/smartthings-dev
     integration-tests:
-      role: arn:aws:iam::123456789:role/smartthings-staging-readonly
+      role: arn:aws:iam::123456789012:role/smartthings-staging-readonly
 
 # Audit logging
 logging:

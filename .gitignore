@@ -19,3 +19,12 @@ uv.lock
 
 # OS
 .DS_Store
+
+# Local secrets / credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.token
+*.credentials

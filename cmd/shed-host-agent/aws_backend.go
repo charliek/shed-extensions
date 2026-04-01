@@ -111,6 +111,9 @@ func (b *stsBackend) GetCredentials(ctx context.Context, shedName string) (*AWSC
 	if err != nil {
 		return nil, fmt.Errorf("sts:AssumeRole failed for %s: %w", roleARN, err)
 	}
+	if result.Credentials == nil {
+		return nil, fmt.Errorf("sts:AssumeRole returned nil credentials for %s", roleARN)
+	}
 
 	creds := &AWSCachedCredentials{
 		AccessKeyID:     *result.Credentials.AccessKeyId,

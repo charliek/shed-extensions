@@ -59,14 +59,14 @@ func TestLoadConfigAWS(t *testing.T) {
 server: http://localhost:8080
 aws:
   source_profile: staging
-  default_role: arn:aws:iam::123456789:role/dev
+  default_role: arn:aws:iam::123456789012:role/dev
   session_duration: 2h
   cache_refresh_before: 10m
   sheds:
     my-service:
-      role: arn:aws:iam::123456789:role/my-service
+      role: arn:aws:iam::123456789012:role/my-service
     tests:
-      role: arn:aws:iam::123456789:role/readonly
+      role: arn:aws:iam::123456789012:role/readonly
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ aws:
 	if cfg.AWS.SourceProfile != "staging" {
 		t.Errorf("aws.source_profile: got %q, want %q", cfg.AWS.SourceProfile, "staging")
 	}
-	if cfg.AWS.DefaultRole != "arn:aws:iam::123456789:role/dev" {
+	if cfg.AWS.DefaultRole != "arn:aws:iam::123456789012:role/dev" {
 		t.Errorf("aws.default_role: got %q", cfg.AWS.DefaultRole)
 	}
 	if cfg.AWS.SessionDuration != "2h" {
@@ -92,7 +92,7 @@ aws:
 	if len(cfg.AWS.Sheds) != 2 {
 		t.Fatalf("aws.sheds: got %d entries, want 2", len(cfg.AWS.Sheds))
 	}
-	if cfg.AWS.Sheds["my-service"].Role != "arn:aws:iam::123456789:role/my-service" {
+	if cfg.AWS.Sheds["my-service"].Role != "arn:aws:iam::123456789012:role/my-service" {
 		t.Errorf("aws.sheds.my-service.role: got %q", cfg.AWS.Sheds["my-service"].Role)
 	}
 }

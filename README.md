@@ -57,7 +57,7 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 
     aws:
       source_profile: default
-      default_role: arn:aws:iam::123456789:role/your-dev-role
+      default_role: arn:aws:iam::123456789012:role/your-dev-role
 
     logging:
       enabled: true
@@ -111,16 +111,16 @@ ssh:
 
 aws:
   source_profile: default
-  default_role: arn:aws:iam::123456789:role/dev
+  default_role: arn:aws:iam::123456789012:role/dev
   session_duration: 1h
   cache_refresh_before: 5m
 
   # Per-shed role overrides
   sheds:
     my-service:
-      role: arn:aws:iam::123456789:role/dev
+      role: arn:aws:iam::123456789012:role/dev
     integration-tests:
-      role: arn:aws:iam::123456789:role/staging-readonly
+      role: arn:aws:iam::123456789012:role/staging-readonly
 
 logging:
   enabled: true
