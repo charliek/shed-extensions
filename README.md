@@ -11,6 +11,7 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 │  shed microVM (Linux guest)     │
 │                                 │
 │  SSH client ──▶ shed-ssh-agent  │
+│  AWS SDK   ──▶ shed-aws-proxy  │
 │                    │            │
 │              POST /v1/publish   │
 │                    │            │
@@ -26,6 +27,7 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 │  Host (macOS)      ▼            │
 │  shed-host-agent                │
 │    ├── SSH keys / agent         │
+│    ├── AWS STS AssumeRole       │
 │    ├── Touch ID gate (optional) │
 │    └── Audit log                │
 └─────────────────────────────────┘
@@ -36,7 +38,7 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 | Namespace | Status | Description |
 |-----------|--------|-------------|
 | `ssh-agent` | Implemented | SSH key operations for git, SCP, remote access |
-| `aws-credentials` | Planned | AWS SDK credential vending via STS role assumption |
+| `aws-credentials` | Implemented | AWS SDK credential vending via STS role assumption |
 
 ## Quick Start
 
@@ -50,7 +52,15 @@ Credentials never enter the VM — all signing and secret resolution happens on 
     mkdir -p ~/.config/shed
     cat > ~/.config/shed/extensions.yaml << 'EOF'
     server: http://localhost:8080
+
     ssh: {}
+
+    aws:
+      source_profile: default
+      default_role: arn:aws:iam::123456789012:role/your-dev-role
+
+    logging:
+      enabled: true
     EOF
     ```
 
@@ -69,17 +79,22 @@ Use the extensions-enabled shed base image — guest-side binaries and systemd u
 From inside a shed:
 
 ```bash
-ssh -T git@github.com
-```
+# Check extension status
+shed-ext status
 
-Your SSH key never enters the VM. The sign request routes through the message bus to your Mac, where `shed-host-agent` signs with your local key.
+# SSH — sign with your host key
+ssh -T git@github.com
+
+# AWS — get temporary credentials via STS
+aws sts get-caller-identity
+```
 
 ## Security Properties
 
 - SSH private keys never enter the VM — only signatures cross the bus
-- AWS long-lived credentials never leave the host (Phase 2)
-- AWS STS tokens are short-lived and role-scoped (Phase 2)
-- Optional Touch ID approval gate for sign operations
+- AWS long-lived credentials never leave the host
+- AWS STS tokens are short-lived (1 hour) and role-scoped per shed
+- Optional Touch ID approval gate for SSH sign operations
 - All credential operations logged to host-side audit log
 
 ## Configuration
@@ -93,8 +108,19 @@ ssh:
   # mode: agent-forward | local-keys | "" (auto-detect)
   approval:
     enabled: false
-    # policy: per-session    # per-request | per-session | per-shed
-    # session_ttl: 4h
+
+aws:
+  source_profile: default
+  default_role: arn:aws:iam::123456789012:role/dev
+  session_duration: 1h
+  cache_refresh_before: 5m
+
+  # Per-shed role overrides
+  sheds:
+    my-service:
+      role: arn:aws:iam::123456789012:role/dev
+    integration-tests:
+      role: arn:aws:iam::123456789012:role/staging-readonly
 
 logging:
   enabled: true
@@ -109,7 +135,7 @@ The SSH backend is auto-detected: if `SSH_AUTH_SOCK` exists on your Mac, it prox
 mise install            # install Go 1.24 and golangci-lint
 make check              # lint + test
 make build-host         # build shed-host-agent (macOS)
-make build-guest        # cross-compile shed-ssh-agent (Linux amd64 + arm64)
+make build-guest        # cross-compile guest binaries (Linux amd64 + arm64)
 make docs-serve         # serve docs at http://127.0.0.1:7071
 ```
 
