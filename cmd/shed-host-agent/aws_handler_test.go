@@ -195,3 +195,60 @@ func TestAWSHandlerError(t *testing.T) {
 		t.Fatal("timed out waiting for error response")
 	}
 }
+
+func TestAWSHandlerStatus(t *testing.T) {
+	backend := &mockAWSBackend{}
+	respondCalled := make(chan json.RawMessage, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			statusReq := protocol.AWSStatusRequest{Operation: protocol.AWSOpStatus}
+			payload, _ := json.Marshal(statusReq)
+			env := protocol.NewEnvelope(protocol.NamespaceAWSCredentials, protocol.MessageTypeRequest, payload)
+			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			data, _ := json.Marshal(env)
+
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher := w.(http.Flusher)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			<-r.Context().Done()
+
+		case http.MethodPost:
+			var env protocol.Envelope
+			json.NewDecoder(r.Body).Decode(&env)
+			w.WriteHeader(http.StatusNoContent)
+			respondCalled <- env.Payload
+		}
+	}))
+	defer srv.Close()
+
+	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	logger := slog.Default()
+	audit := &AuditLogger{logger: logger}
+
+	handler := NewAWSHandler(backend, client, audit, logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go handler.Run(ctx)
+
+	select {
+	case payload := <-respondCalled:
+		var statusResp protocol.AWSStatusResponse
+		if err := json.Unmarshal(payload, &statusResp); err != nil {
+			t.Fatalf("unmarshal status response: %v", err)
+		}
+		if !statusResp.Connected {
+			t.Error("expected connected=true")
+		}
+		if statusResp.Role != "arn:aws:iam::123:role/mock" {
+			t.Errorf("role: got %q, want mock role", statusResp.Role)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for status response")
+	}
+}

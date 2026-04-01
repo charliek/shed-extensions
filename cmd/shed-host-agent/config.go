@@ -2,12 +2,23 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// userHomeDir returns the user's home directory, falling back to /tmp if unavailable.
+func userHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		slog.Warn("could not determine home directory, using /tmp", "error", err)
+		return "/tmp"
+	}
+	return home
+}
 
 // Config is the top-level configuration for shed-host-agent.
 type Config struct {
@@ -52,7 +63,7 @@ type LogConfig struct {
 
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
-	home, _ := os.UserHomeDir()
+	home := userHomeDir()
 	return Config{
 		Server: "http://localhost:8080",
 		SSH: SSHConfig{
@@ -79,7 +90,7 @@ func LoadConfig(path string) (Config, error) {
 
 	// Expand ~ in path
 	if strings.HasPrefix(path, "~/") {
-		home, _ := os.UserHomeDir()
+		home := userHomeDir()
 		path = filepath.Join(home, path[2:])
 	}
 
@@ -94,7 +105,7 @@ func LoadConfig(path string) (Config, error) {
 
 	// Expand ~ in log path
 	if strings.HasPrefix(cfg.Logging.Path, "~/") {
-		home, _ := os.UserHomeDir()
+		home := userHomeDir()
 		cfg.Logging.Path = filepath.Join(home, cfg.Logging.Path[2:])
 	}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"log/slog"
@@ -112,15 +113,5 @@ func (b *localKeysBackend) Sign(key ssh.PublicKey, data []byte, flags agent.Sign
 
 // keysEqual compares two SSH public keys by their marshaled form.
 func keysEqual(a, b ssh.PublicKey) bool {
-	am := a.Marshal()
-	bm := b.Marshal()
-	if len(am) != len(bm) {
-		return false
-	}
-	for i := range am {
-		if am[i] != bm[i] {
-			return false
-		}
-	}
-	return true
+	return bytes.Equal(a.Marshal(), b.Marshal())
 }

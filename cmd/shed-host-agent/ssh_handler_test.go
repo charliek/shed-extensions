@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -117,6 +119,16 @@ func TestSSHHandlerList(t *testing.T) {
 }
 
 func TestSSHHandlerSign(t *testing.T) {
+	// Generate a real ed25519 key so the handler can parse and sign
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshPub, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	backend := &mockBackend{
 		signFn: func(_ ssh.PublicKey, _ []byte, _ agent.SignatureFlags) (*ssh.Signature, error) {
 			return &ssh.Signature{
@@ -133,7 +145,7 @@ func TestSSHHandlerSign(t *testing.T) {
 		case http.MethodGet:
 			signReq := protocol.SSHSignRequest{
 				Operation: protocol.SSHOpSign,
-				PublicKey: base64.StdEncoding.EncodeToString([]byte("fake-key-bytes")),
+				PublicKey: base64.StdEncoding.EncodeToString(sshPub.Marshal()),
 				Data:      base64.StdEncoding.EncodeToString([]byte("challenge")),
 				Flags:     0,
 			}
@@ -171,17 +183,15 @@ func TestSSHHandlerSign(t *testing.T) {
 
 	select {
 	case payload := <-respondCalled:
-		// The sign will fail at ParsePublicKey because we sent fake key bytes,
-		// so we expect an error response. This validates the handler dispatches correctly.
-		var errResp protocol.SSHErrorResponse
-		if json.Unmarshal(payload, &errResp) == nil && errResp.Code != "" {
-			// Expected: fake key bytes aren't a valid SSH public key
-			t.Logf("got expected error response: %s (%s)", errResp.Error, errResp.Code)
-		} else {
-			var signResp protocol.SSHSignResponse
-			if err := json.Unmarshal(payload, &signResp); err != nil {
-				t.Fatalf("unexpected response payload: %s", string(payload))
-			}
+		var signResp protocol.SSHSignResponse
+		if err := json.Unmarshal(payload, &signResp); err != nil {
+			t.Fatalf("unmarshal sign response: %v", err)
+		}
+		if signResp.Format != "ssh-ed25519" {
+			t.Errorf("format: got %q, want %q", signResp.Format, "ssh-ed25519")
+		}
+		if signResp.Blob == "" {
+			t.Error("empty signature blob")
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for response")
@@ -238,5 +248,71 @@ func TestSSHHandlerPing(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for ping response")
+	}
+}
+
+func TestSSHHandlerStatus(t *testing.T) {
+	backend := &mockBackend{
+		keys: []*agent.Key{
+			{Format: "ssh-ed25519", Blob: []byte("key1"), Comment: "test@host"},
+			{Format: "ssh-rsa", Blob: []byte("key2"), Comment: "test2@host"},
+		},
+	}
+
+	respondCalled := make(chan json.RawMessage, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			statusReq := protocol.SSHStatusRequest{Operation: protocol.SSHOpStatus}
+			payload, _ := json.Marshal(statusReq)
+			env := protocol.NewEnvelope(protocol.NamespaceSSHAgent, protocol.MessageTypeRequest, payload)
+			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			data, _ := json.Marshal(env)
+
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher := w.(http.Flusher)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			<-r.Context().Done()
+
+		case http.MethodPost:
+			var env protocol.Envelope
+			json.NewDecoder(r.Body).Decode(&env)
+			w.WriteHeader(http.StatusNoContent)
+			respondCalled <- env.Payload
+		}
+	}))
+	defer srv.Close()
+
+	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	logger := slog.Default()
+	audit := &AuditLogger{logger: logger}
+
+	handler := NewSSHHandler(backend, client, &noopGate{}, audit, logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go handler.Run(ctx)
+
+	select {
+	case payload := <-respondCalled:
+		var statusResp protocol.SSHStatusResponse
+		if err := json.Unmarshal(payload, &statusResp); err != nil {
+			t.Fatalf("unmarshal status response: %v", err)
+		}
+		if !statusResp.Connected {
+			t.Error("expected connected=true")
+		}
+		if statusResp.Mode != "mock" {
+			t.Errorf("mode: got %q, want %q", statusResp.Mode, "mock")
+		}
+		if statusResp.KeyCount != 2 {
+			t.Errorf("key_count: got %d, want 2", statusResp.KeyCount)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for status response")
 	}
 }

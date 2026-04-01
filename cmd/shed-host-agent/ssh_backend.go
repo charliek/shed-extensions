@@ -35,7 +35,8 @@ func ResolveSSHBackend(cfg SSHConfig, logger *slog.Logger) (SSHBackend, error) {
 	case "":
 		// Auto-detect
 		if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-			if _, err := net.Dial("unix", sock); err == nil {
+			if conn, err := net.Dial("unix", sock); err == nil {
+				conn.Close()
 				logger.Info("auto-detected SSH backend", "mode", "agent-forward", "socket", sock)
 				return newAgentForwardBackend(logger)
 			}

@@ -99,5 +99,5 @@ func main() {
 // writeStatus writes the current status to a well-known file for programmatic
 // consumption (e.g., by shed-ext status).
 func writeStatus(status string) {
-	_ = os.WriteFile("/run/shed-extensions-status", []byte(status+"\n"), 0644)
+	_ = os.WriteFile("/run/shed-ssh-agent.status", []byte(status+"\n"), 0644)
 }

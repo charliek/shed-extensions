@@ -126,14 +126,13 @@ func (p *Proxy) Ping(timeout time.Duration) error {
 }
 
 func (p *Proxy) writeError(w http.ResponseWriter, status int, msg, hint string) {
+	if hint == "" {
+		hint = "Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml"
+	}
 	resp := awsSDKErrorResponse{
 		Error:   msg,
-		Message: "shed-host-agent not reachable. Is it running on your Mac?",
+		Message: msg,
 		Hint:    hint,
-	}
-	if hint == "" {
-		resp.Message = msg
-		resp.Hint = "Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml"
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

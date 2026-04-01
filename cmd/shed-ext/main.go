@@ -18,11 +18,17 @@ import (
 const statusTimeout = 2 * time.Second
 
 func main() {
-	publishURL := flag.String("publish-url", busclient.DefaultPublishURL, "shed-agent publish endpoint")
-	flag.Parse()
-
-	if len(flag.Args()) == 0 || flag.Arg(0) != "status" {
+	// Parse subcommand from os.Args before flag parsing so that
+	// "shed-ext status --publish-url ..." works as expected.
+	if len(os.Args) < 2 || os.Args[1] != "status" {
 		fmt.Fprintf(os.Stderr, "Usage: shed-ext status [--publish-url URL]\n")
+		os.Exit(2)
+	}
+
+	// Parse flags after the subcommand
+	statusFlags := flag.NewFlagSet("status", flag.ExitOnError)
+	publishURL := statusFlags.String("publish-url", busclient.DefaultPublishURL, "shed-agent publish endpoint")
+	if err := statusFlags.Parse(os.Args[2:]); err != nil {
 		os.Exit(2)
 	}
 

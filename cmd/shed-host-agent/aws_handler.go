@@ -70,8 +70,8 @@ func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *protocol.Env
 	creds, err := h.backend.GetCredentials(ctx, shedName)
 	if err != nil {
 		h.logger.Error("get credentials failed", "error", err, "shed", shedName)
-		h.sendError(ctx, env, err.Error(), protocol.AWSCodeAssumeRoleFailed)
-		h.audit.Log(shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "error", "", "none")
+		h.sendError(ctx, env, "credential request failed", protocol.AWSCodeAssumeRoleFailed)
+		h.audit.Log(shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "error", err.Error(), "none")
 		return
 	}
 

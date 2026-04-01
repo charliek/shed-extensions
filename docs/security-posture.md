@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-shed-extensions eliminates credential material from development VMs by brokering all signing and secret resolution through the host machine. Private keys and long-lived AWS credentials never enter the VM. The developer's existing key management (Secretive, 1Password, ssh-agent) works unchanged, with an added audit trail.
+shed-extensions eliminates long-lived credential material and private keys from development VMs by brokering all signing and secret resolution through the host machine. SSH private keys and AWS long-lived credentials never enter the VM — only short-lived STS session tokens (1-hour, role-scoped) cross the bus. The developer's existing key management (Secretive, 1Password, ssh-agent) works unchanged, with an added audit trail.
 
 ## Before / After Comparison
 

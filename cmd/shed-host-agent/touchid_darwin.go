@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 // touchIDGate implements ApprovalGate using macOS Touch ID.
@@ -90,7 +91,9 @@ func (g *touchIDGate) Approve(shedName, reason string) error {
 	}
 
 	prompt := fmt.Sprintf("shed-extensions: %s (shed: %s)", reason, shedName)
-	result := C.authenticate(C.CString(prompt))
+	cPrompt := C.CString(prompt)
+	defer C.free(unsafe.Pointer(cPrompt))
+	result := C.authenticate(cPrompt)
 
 	switch result {
 	case 1:

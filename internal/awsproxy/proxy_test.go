@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charliek/shed-extensions/internal/protocol"
+	"github.com/charliek/shed-extensions/internal/testutil"
 )
 
 func TestHandleCredentials(t *testing.T) {
@@ -136,36 +137,6 @@ func keys(m map[string]string) []string {
 	return ks
 }
 
-// testPublishRequest mirrors the bus publish request for test decoding.
-type testPublishRequest struct {
-	Namespace string          `json:"namespace"`
-	Type      string          `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-}
-
-// newMockPublishServer creates a test server simulating the shed-agent
-// /v1/publish endpoint.
 func newMockPublishServer(t *testing.T, handler func(json.RawMessage) json.RawMessage) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/publish" {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-
-		var pubReq testPublishRequest
-		if err := json.NewDecoder(r.Body).Decode(&pubReq); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if pubReq.Namespace != protocol.NamespaceAWSCredentials {
-			t.Errorf("unexpected namespace: %q", pubReq.Namespace)
-		}
-
-		respPayload := handler(pubReq.Payload)
-		env := protocol.NewResponse("mock-req", pubReq.Namespace, respPayload)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(env)
-	}))
+	return testutil.NewMockPublishServer(t, protocol.NamespaceAWSCredentials, handler)
 }

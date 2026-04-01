@@ -55,11 +55,13 @@ func NewSTSBackend(ctx context.Context, cfg AWSConfig, logger *slog.Logger) (AWS
 
 	refreshBefore, err := time.ParseDuration(cfg.CacheRefreshBefore)
 	if err != nil {
+		logger.Warn("invalid cache_refresh_before, using default", "value", cfg.CacheRefreshBefore, "default", "5m")
 		refreshBefore = 5 * time.Minute
 	}
 
 	sessionDur, err := time.ParseDuration(cfg.SessionDuration)
 	if err != nil {
+		logger.Warn("invalid session_duration, using default", "value", cfg.SessionDuration, "default", "1h")
 		sessionDur = 1 * time.Hour
 	}
 
@@ -86,18 +88,18 @@ func (b *stsBackend) GetCredentials(ctx context.Context, shedName string) (*AWSC
 		return nil, fmt.Errorf("no role configured for shed %q", shedName)
 	}
 
+	// Check cache under lock
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	// Check cache
 	if cached, ok := b.cache[shedName]; ok {
 		if time.Until(cached.Expiration) > b.refreshBefore {
+			b.mu.Unlock()
 			b.logger.Debug("returning cached credentials", "shed", shedName, "expires", cached.Expiration)
 			return cached, nil
 		}
 	}
+	b.mu.Unlock()
 
-	// Assume role
+	// Assume role without holding the lock (avoids blocking other sheds)
 	sessionName := fmt.Sprintf("shed-%s-%d", shedName, time.Now().Unix())
 	durationSec := int32(b.sessionDur.Seconds())
 
@@ -117,7 +119,10 @@ func (b *stsBackend) GetCredentials(ctx context.Context, shedName string) (*AWSC
 		Expiration:      *result.Credentials.Expiration,
 	}
 
+	b.mu.Lock()
 	b.cache[shedName] = creds
+	b.mu.Unlock()
+
 	b.logger.Info("assumed role",
 		"shed", shedName,
 		"role", roleARN,

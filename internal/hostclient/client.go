@@ -83,10 +83,17 @@ func (c *Client) subscribeLoop(ctx context.Context, namespace string, ch chan<- 
 
 	backoff := initialBackoff
 	for {
+		start := time.Now()
 		err := c.streamMessages(ctx, namespace, ch)
 		if ctx.Err() != nil {
 			return
 		}
+
+		// Reset backoff if the connection was stable for a while
+		if time.Since(start) > 60*time.Second {
+			backoff = initialBackoff
+		}
+
 		c.logger.Warn("SSE connection lost, reconnecting",
 			"namespace", namespace,
 			"error", err,
@@ -124,6 +131,7 @@ func (c *Client) streamMessages(ctx context.Context, namespace string, ch chan<-
 
 	scanner := bufio.NewScanner(resp.Body)
 	var dataBuf bytes.Buffer
+	dataLines := 0
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -131,7 +139,12 @@ func (c *Client) streamMessages(ctx context.Context, namespace string, ch chan<-
 		if strings.HasPrefix(line, "data:") {
 			data := strings.TrimPrefix(line, "data:")
 			data = strings.TrimSpace(data)
+			// Per SSE spec, multiple data: lines are joined with newlines
+			if dataLines > 0 {
+				dataBuf.WriteByte('\n')
+			}
 			dataBuf.WriteString(data)
+			dataLines++
 			continue
 		}
 
@@ -148,6 +161,7 @@ func (c *Client) streamMessages(ctx context.Context, namespace string, ch chan<-
 				}
 			}
 			dataBuf.Reset()
+			dataLines = 0
 		}
 	}
 

@@ -37,12 +37,12 @@ func NewAuditLogger(cfg LogConfig, logger *slog.Logger) *AuditLogger {
 
 	// Ensure directory exists
 	dir := filepath.Dir(cfg.Path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		logger.Warn("failed to create audit log directory", "path", dir, "error", err)
 		return &AuditLogger{logger: logger}
 	}
 
-	f, err := os.OpenFile(cfg.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(cfg.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		logger.Warn("failed to open audit log", "path", cfg.Path, "error", err)
 		return &AuditLogger{logger: logger}
