@@ -1,0 +1,21 @@
+# Build artifacts
+bin/
+dist/
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Documentation build
+site-build/
+.venv/
+uv.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store

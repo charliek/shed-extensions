@@ -1,0 +1,16 @@
+[Unit]
+Description=shed SSH Agent (credential proxy)
+After=network.target shed-agent.service
+Wants=shed-agent.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/shed-ssh-agent \
+  --sock /run/shed-ssh-agent.sock \
+  --publish-url http://127.0.0.1:498/v1/publish
+Restart=always
+RestartSec=2
+RuntimeDirectory=shed
+
+[Install]
+WantedBy=multi-user.target
