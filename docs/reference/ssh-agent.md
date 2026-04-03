@@ -4,7 +4,7 @@ The `ssh-agent` namespace brokers SSH key operations between the shed microVM an
 
 ## How It Works
 
-`shed-ssh-agent` runs inside the VM as a systemd service, listening on a Unix domain socket at `/run/shed-ssh-agent.sock`. The `SSH_AUTH_SOCK` environment variable points all SSH clients to this socket.
+`shed-ssh-agent` runs inside the VM as a systemd service, listening on a Unix domain socket at `/run/shed-extensions/ssh-agent.sock`. The `SSH_AUTH_SOCK` environment variable points all SSH clients to this socket.
 
 When an SSH client (git, ssh, scp) requests a key operation, `shed-ssh-agent` translates it into a message bus request and forwards it to the host agent for processing.
 

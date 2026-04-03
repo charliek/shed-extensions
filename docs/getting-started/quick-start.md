@@ -46,7 +46,7 @@
 Use the extensions-enabled shed base image. The guest-side binaries and systemd units are pre-installed — no configuration needed.
 
 The image includes:
-- `shed-ssh-agent` — SSH agent proxy on `/run/shed-ssh-agent.sock`
+- `shed-ssh-agent` — SSH agent proxy on `/run/shed-extensions/ssh-agent.sock`
 - `shed-aws-proxy` — AWS credential endpoint on `http://127.0.0.1:499`
 - Environment variables `SSH_AUTH_SOCK` and `AWS_CONTAINER_CREDENTIALS_FULL_URI` pre-configured
 
