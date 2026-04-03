@@ -110,6 +110,19 @@ The caching strategy is asymmetric:
 
 This avoids cache coherence complexity. The bus round trip is sub-millisecond (vsock, same machine), and the SDK only fetches credentials when its in-memory cache is stale (~once per hour).
 
+## Distribution
+
+Artifacts are split across two channels:
+
+| Component | Channel | Trigger |
+|-----------|---------|---------|
+| `shed-host-agent` (darwin + linux, arm64 + amd64) | GitHub Release (GoReleaser) | git tag |
+| Guest binaries + systemd units + env config | Multi-arch Docker image (`ghcr.io/charliek/shed-extensions:<tag>`) | git tag |
+
+The Docker image is a `scratch`-based container with just the binaries and config files. It's consumed by shed's VZ and Firecracker Dockerfiles via `COPY --from=ghcr.io/charliek/shed-extensions:<version>`. Shed pins the version with an `ARG SHED_EXT_VERSION` in each Dockerfile.
+
+Both are published by the same release workflow (`.github/workflows/release.yaml`) from the same git tag.
+
 ## Security Boundaries
 
 | Boundary | What crosses | What doesn't |

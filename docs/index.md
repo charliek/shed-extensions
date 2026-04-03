@@ -42,6 +42,8 @@ graph LR
 - Optional Touch ID approval gate for sign operations
 - All operations logged to host-side audit log
 
-## Quick Start
+## Image Distribution
 
-See [Getting Started](getting-started/quick-start.md) for setup instructions.
+Guest components (`shed-ssh-agent`, `shed-aws-proxy`, `shed-ext`) are pre-installed in shed's [`experimental` image variant](https://charliek.github.io/shed/reference/images/). Create a shed with `--image experimental` to get credential brokering out of the box.
+
+The host component (`shed-host-agent`) is installed separately — see [Getting Started](getting-started/quick-start.md) for setup instructions.
