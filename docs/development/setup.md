@@ -56,8 +56,9 @@ Guest binaries are distributed as a multi-arch Docker image consumed by shed's V
 docker buildx build --platform linux/arm64 -t ghcr.io/charliek/shed-extensions:dev --load .
 
 # Verify contents
-docker run --rm ghcr.io/charliek/shed-extensions:dev ls /bin/
-# Expected: shed-ssh-agent  shed-aws-proxy  shed-ext
+cid=$(docker create --entrypoint=/ ghcr.io/charliek/shed-extensions:dev)
+docker export "$cid" | tar tf - | grep shed-
+docker rm "$cid"
 
 # Test with shed's image build (in the shed repo)
 cd ~/projects/shed

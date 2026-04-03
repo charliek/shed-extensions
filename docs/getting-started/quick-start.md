@@ -55,6 +55,7 @@ The `experimental` image includes:
 
 - `shed-ssh-agent` — SSH agent proxy on `/run/shed-extensions/ssh-agent.sock`
 - `shed-aws-proxy` — AWS credential endpoint on `http://127.0.0.1:499`
+- `shed-ext` — CLI for checking namespace connectivity and health
 - Environment variables `SSH_AUTH_SOCK` and `AWS_CONTAINER_CREDENTIALS_FULL_URI` pre-configured
 
 ## Verify SSH
