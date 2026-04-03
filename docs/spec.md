@@ -126,12 +126,14 @@ Wants=shed-agent.service
 
 [Service]
 Type=simple
+User=shed
+Group=shed
+RuntimeDirectory=shed-extensions
 ExecStart=/usr/local/bin/shed-ssh-agent \
-  --sock /run/shed-ssh-agent.sock \
+  --sock /run/shed-extensions/ssh-agent.sock \
   --publish-url http://127.0.0.1:498/v1/publish
 Restart=always
 RestartSec=2
-RuntimeDirectory=shed
 
 [Install]
 WantedBy=multi-user.target
@@ -146,6 +148,10 @@ Wants=shed-agent.service
 
 [Service]
 Type=simple
+User=shed
+Group=shed
+RuntimeDirectory=shed-extensions
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 ExecStart=/usr/local/bin/shed-aws-proxy \
   --port 499 \
   --publish-url http://127.0.0.1:498/v1/publish
@@ -159,7 +165,7 @@ WantedBy=multi-user.target
 **Environment variables** (`/etc/environment.d/shed-extensions.conf`):
 
 ```
-SSH_AUTH_SOCK=/run/shed-ssh-agent.sock
+SSH_AUTH_SOCK=/run/shed-extensions/ssh-agent.sock
 AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:499/credentials
 ```
 
@@ -378,7 +384,7 @@ SSH operations will fail until shed-host-agent is running on your Mac.
 Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml
 ```
 
-This warning is visible in `journalctl` and also written to `/run/shed-extensions-status` for programmatic consumption.
+This warning is visible in `journalctl` and also written to `/run/shed-extensions/*.status` for programmatic consumption.
 
 ### Request Timeout
 
@@ -463,7 +469,7 @@ logging:
 
 None. The opinionated base image configures everything via convention:
 
-- `SSH_AUTH_SOCK=/run/shed-ssh-agent.sock` — set in `/etc/environment.d/`
+- `SSH_AUTH_SOCK=/run/shed-extensions/ssh-agent.sock` — set in `/etc/environment.d/`
 - `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:499/credentials` — set in `/etc/environment.d/`
 - Both services start via systemd at boot
 
