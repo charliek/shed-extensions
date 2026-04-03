@@ -532,6 +532,9 @@ shed-extensions/
 │   ├── protocol/                  # Shared envelope types, request/response structs
 │   │   ├── ssh.go
 │   │   └── aws.go
+│   ├── busclient/                 # Shared guest-side publish-to-bus client
+│   │   ├── client.go
+│   │   └── client_test.go
 │   ├── sshagent/                  # agent.Agent implementation
 │   │   ├── agent.go
 │   │   └── agent_test.go
@@ -550,8 +553,10 @@ shed-extensions/
 │   │       └── shed-aws-proxy.service
 │   └── README.md
 ├── docs/
-│   ├── architecture.md
-│   └── getting-started.md
+│   ├── spec.md
+│   ├── getting-started/
+│   ├── reference/
+│   └── development/
 ├── go.mod
 ├── go.sum
 ├── Makefile
@@ -606,20 +611,47 @@ The host binary requires a macOS build environment (cgo for Touch ID). Guest bin
 4. Demo script for stakeholder presentations (InfoSec, ACE, engineering leadership)
 5. Security posture comparison document (before/after credential isolation)
 
-### Phase 4: Integration (Post-PoC)
+### Phase 4: Integration Testing ✅
 
-1. Explore injecting guest binaries via 9P/VirtioFS (avoid image rebuilds for updates)
-2. launchd plist for shed-host-agent auto-start on macOS
-3. Evaluate integrating host handlers into shed-server as optional module
+Validate the full system in a real VZ-backed shed on macOS. No image building — binaries mounted via `--local-dir` and installed manually.
+
+1. Build all binaries (shed-server, guest linux/arm64, host agent)
+2. Create a test shed with `--local-dir` mounting the guest binary dist directory
+3. Install guest binaries, systemd units, and environment config inside the VM
+4. Start `shed-host-agent` on the host, verify bus connectivity with `shed-ext status`
+5. End-to-end SSH test: `ssh-add -l`, `ssh -T git@github.com`, `git clone` from inside the VM
+6. End-to-end AWS test: `curl` credential endpoint, verify STS credentials returned
+7. Verify no private keys or long-lived AWS credentials exist in the VM
+8. Verify audit log captures all operations
+9. Fix bugs found during testing (socket permissions, SCP support, environment.d loading)
+
+### Phase 5: Experimental Image
+
+Build guest binaries into a distributed experimental Docker image so developers get credential isolation out of the box — no manual setup inside the VM.
+
+1. Create a Dockerfile or image build process that layers extensions onto the base shed image
+2. Bake in: guest binaries (`shed-ssh-agent`, `shed-aws-proxy`, `shed-ext`), systemd units, environment.d config
+3. Push to registry as an extensions-enabled image tag (e.g., `shed-base:extensions`)
+4. Update shed-server config to reference the extensions image
+5. End-to-end validation: `shed create myproject --image extensions` works with zero in-VM setup
+6. Document the image build process and developer quickstart
+
+### Phase 6: Integration & Distribution
+
+Production-readiness: auto-start, shed-server integration, and graduation from experimental to standard.
+
+1. launchd plist for `shed-host-agent` auto-start on macOS
+2. Evaluate integrating host handlers into shed-server as an optional module
+3. Explore injecting guest binaries via 9P/VirtioFS (avoid image rebuilds for updates)
 4. Graduate from experimental image tag to optional feature in standard image
 
 ## Graduation Path
 
 The feature follows an experimental → optional → default model:
 
-1. **Experimental**: Extensions-enabled base image as a separate image tag. Developer manually runs host agent. Used for dogfooding and feedback.
-2. **Optional**: Guest binaries available in the standard image but disabled by default. Host agent handlers available as a shed-server flag (`--enable-extensions`).
-3. **Default**: Credential isolation on by default for new sheds. Host agent integrated into shed-server. Standard security posture for the org.
+1. **Experimental** (Phase 5): Extensions-enabled base image as a separate image tag. Developer manually runs host agent. Used for dogfooding and feedback.
+2. **Optional** (Phase 6): Guest binaries available in the standard image but disabled by default. Host agent handlers available as a shed-server flag (`--enable-extensions`). launchd auto-start for host agent.
+3. **Default** (future): Credential isolation on by default for new sheds. Host agent integrated into shed-server. Standard security posture for the org.
 
 Each stage requires demonstrated stability and positive developer feedback before progression.
 
