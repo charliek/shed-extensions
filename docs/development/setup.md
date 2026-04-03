@@ -52,8 +52,8 @@ make docs           # build to site-build/
 Guest binaries are distributed as a multi-arch Docker image consumed by shed's VM Dockerfiles. To build and test locally:
 
 ```bash
-# Build for local arch
-docker buildx build --platform linux/arm64 -t ghcr.io/charliek/shed-extensions:dev --load .
+# Build for local arch (linux/arm64 on ARM Mac, linux/amd64 on x86 Linux)
+docker buildx build -t ghcr.io/charliek/shed-extensions:dev --load .
 
 # Verify contents
 cid=$(docker create --entrypoint=/ ghcr.io/charliek/shed-extensions:dev)

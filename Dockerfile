@@ -7,8 +7,10 @@
 #
 # Consumed by shed's VZ and Firecracker Dockerfiles via COPY --from=.
 #
-# Build locally:
-#   docker buildx build --platform linux/arm64 -t ghcr.io/charliek/shed-extensions:dev --load .
+# Build locally (uses host arch — linux/arm64 on ARM Mac, linux/amd64 on x86 Linux):
+#   docker buildx build -t ghcr.io/charliek/shed-extensions:dev --load .
+#
+# Build multi-arch:
 #   docker buildx build --platform linux/arm64,linux/amd64 -t ghcr.io/charliek/shed-extensions:dev .
 #
 # Verify contents:
