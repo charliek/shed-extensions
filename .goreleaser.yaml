@@ -7,7 +7,7 @@ before:
     - go mod tidy
 
 builds:
-  - id: shed-host-agent
+  - id: shed-host-agent-darwin
     binary: shed-host-agent
     main: ./cmd/shed-host-agent
     env:
@@ -23,41 +23,9 @@ builds:
       - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
       - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
 
-  - id: shed-ssh-agent
-    binary: shed-ssh-agent
-    main: ./cmd/shed-ssh-agent
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X github.com/charliek/shed-extensions/internal/version.Version={{.Version}}
-      - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
-      - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
-
-  - id: shed-aws-proxy
-    binary: shed-aws-proxy
-    main: ./cmd/shed-aws-proxy
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X github.com/charliek/shed-extensions/internal/version.Version={{.Version}}
-      - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
-      - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
-
-  - id: shed-ext
-    binary: shed-ext
-    main: ./cmd/shed-ext
+  - id: shed-host-agent-linux
+    binary: shed-host-agent
+    main: ./cmd/shed-host-agent
     env:
       - CGO_ENABLED=0
     goos:
@@ -74,37 +42,11 @@ builds:
 archives:
   - id: shed-host-agent
     ids:
-      - shed-host-agent
+      - shed-host-agent-darwin
+      - shed-host-agent-linux
     formats:
       - tar.gz
     name_template: "shed-host-agent_{{ .Os }}_{{ .Arch }}"
-    files:
-      - none*
-
-  - id: shed-ssh-agent
-    ids:
-      - shed-ssh-agent
-    formats:
-      - tar.gz
-    name_template: "shed-ssh-agent_{{ .Os }}_{{ .Arch }}"
-    files:
-      - none*
-
-  - id: shed-aws-proxy
-    ids:
-      - shed-aws-proxy
-    formats:
-      - tar.gz
-    name_template: "shed-aws-proxy_{{ .Os }}_{{ .Arch }}"
-    files:
-      - none*
-
-  - id: shed-ext
-    ids:
-      - shed-ext
-    formats:
-      - tar.gz
-    name_template: "shed-ext_{{ .Os }}_{{ .Arch }}"
     files:
       - none*
 

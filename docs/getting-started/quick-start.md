@@ -43,11 +43,19 @@
 
 ## Guest Setup
 
-Use the extensions-enabled shed base image. The guest-side binaries and systemd units are pre-installed — no configuration needed.
+Create a shed using the `experimental` image variant. The guest-side binaries and systemd units are pre-installed — no configuration needed:
 
-The image includes:
+```bash
+shed create mydev --image experimental
+```
+
+See the [shed image variants documentation](https://charliek.github.io/shed/reference/images/) for details on selecting and building variants.
+
+The `experimental` image includes:
+
 - `shed-ssh-agent` — SSH agent proxy on `/run/shed-extensions/ssh-agent.sock`
 - `shed-aws-proxy` — AWS credential endpoint on `http://127.0.0.1:499`
+- `shed-ext` — CLI for checking namespace connectivity and health
 - Environment variables `SSH_AUTH_SOCK` and `AWS_CONTAINER_CREDENTIALS_FULL_URI` pre-configured
 
 ## Verify SSH

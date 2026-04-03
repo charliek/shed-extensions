@@ -47,11 +47,31 @@ make docs-serve     # serve at http://127.0.0.1:7071
 make docs           # build to site-build/
 ```
 
+## Docker Image (Guest Artifacts)
+
+Guest binaries are distributed as a multi-arch Docker image consumed by shed's VM Dockerfiles. To build and test locally:
+
+```bash
+# Build for local arch (linux/arm64 on ARM Mac, linux/amd64 on x86 Linux)
+docker buildx build -t ghcr.io/charliek/shed-extensions:dev --load .
+
+# Verify contents
+cid=$(docker create --entrypoint=/ ghcr.io/charliek/shed-extensions:dev)
+docker export "$cid" | tar tf - | grep shed-
+docker rm "$cid"
+
+# Test with shed's image build (in the shed repo)
+cd ~/projects/shed
+./scripts/build-vz-rootfs.sh --variant experimental --shed-ext-version dev
+```
+
+The release workflow (`.github/workflows/release.yaml`) builds and pushes the multi-arch image to `ghcr.io/charliek/shed-extensions:<tag>` on every git tag, alongside the GoReleaser host binary release.
+
 ## Manual Testing
 
 For end-to-end testing against a running shed:
 
 1. Start shed-server: `shed-server serve`
 2. Start host agent: `go run ./cmd/shed-host-agent --config ~/.config/shed/extensions.yaml`
-3. Create a shed with the extensions-enabled image
+3. Create a shed with the experimental image: `shed create test --image experimental`
 4. Inside the shed: `ssh -T git@github.com`

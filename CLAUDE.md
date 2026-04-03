@@ -55,6 +55,14 @@ This project hooks into shed-server's plugin message bus:
 - Host binary responds via `POST /api/plugins/listeners/{namespace}/respond`
 - Namespaces: `ssh-agent`, `aws-credentials`
 
+## Image Distribution
+
+Guest binaries are distributed as a multi-arch Docker image (`ghcr.io/charliek/shed-extensions:<version>`, linux/arm64 + linux/amd64) built from the root `Dockerfile`. This image is consumed by [shed](https://github.com/charliek/shed)'s VM Dockerfiles via `COPY --from=`. The host binary (`shed-host-agent`) is distributed via GitHub Releases (GoReleaser).
+
+- Build Docker image locally: `docker buildx build -t ghcr.io/charliek/shed-extensions:dev --load .`
+- Release workflow (`.github/workflows/release.yaml`) publishes both on git tag
+- See `docs/development/architecture.md` for distribution details
+
 ## Documentation
 
 Docs use MkDocs Material. See `mkdocs.yml` for style guidelines (top comment block).
