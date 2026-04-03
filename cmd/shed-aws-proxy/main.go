@@ -87,5 +87,5 @@ func main() {
 }
 
 func writeStatus(status string) {
-	_ = os.WriteFile("/run/shed-aws-proxy.status", []byte(status+"\n"), 0644)
+	_ = os.WriteFile("/run/shed-extensions/aws-proxy.status", []byte(status+"\n"), 0644)
 }

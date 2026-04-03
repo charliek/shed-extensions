@@ -20,7 +20,7 @@ import (
 )
 
 func main() {
-	sockPath := flag.String("sock", "/run/shed-ssh-agent.sock", "Unix socket path")
+	sockPath := flag.String("sock", "/run/shed-extensions/ssh-agent.sock", "Unix socket path")
 	publishURL := flag.String("publish-url", "http://127.0.0.1:498/v1/publish", "shed-agent publish endpoint")
 	flag.Parse()
 
@@ -100,5 +100,5 @@ func main() {
 // writeStatus writes the current status to a well-known file for programmatic
 // consumption (e.g., by shed-ext status).
 func writeStatus(status string) {
-	_ = os.WriteFile("/run/shed-ssh-agent.status", []byte(status+"\n"), 0644)
+	_ = os.WriteFile("/run/shed-extensions/ssh-agent.status", []byte(status+"\n"), 0644)
 }
