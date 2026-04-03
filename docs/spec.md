@@ -384,7 +384,7 @@ SSH operations will fail until shed-host-agent is running on your Mac.
 Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml
 ```
 
-This warning is visible in `journalctl` and also written to `/run/shed-extensions-status` for programmatic consumption.
+This warning is visible in `journalctl` and also written to `/run/shed-extensions/*.status` for programmatic consumption.
 
 ### Request Timeout
 
