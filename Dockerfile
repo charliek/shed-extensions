@@ -9,10 +9,10 @@
 # Consumed by shed's VZ and Firecracker Dockerfiles via COPY --from=.
 #
 # Build locally (uses host arch — linux/arm64 on ARM Mac, linux/amd64 on x86 Linux):
-#   docker buildx build -t ghcr.io/charliek/shed-extensions:dev --load .
+#   docker buildx build --build-context shed-sdk=../shed/sdk -t ghcr.io/charliek/shed-extensions:dev --load .
 #
 # Build multi-arch:
-#   docker buildx build --platform linux/arm64,linux/amd64 -t ghcr.io/charliek/shed-extensions:dev .
+#   docker buildx build --build-context shed-sdk=../shed/sdk --platform linux/arm64,linux/amd64 -t ghcr.io/charliek/shed-extensions:dev .
 #
 # Verify contents:
 #   cid=$(docker create --entrypoint=/ ghcr.io/charliek/shed-extensions:dev)
@@ -29,10 +29,14 @@ ARG BUILD_DATE=unknown
 
 WORKDIR /src
 
+# Copy the shed SDK source for the replace directive (dev builds).
+# Provide via: --build-context shed-sdk=../shed/sdk
+COPY --from=shed-sdk . /shed-sdk
 COPY go.mod go.sum ./
-RUN go mod download
+RUN sed -i 's|=> ../shed/sdk|=> /shed-sdk|' go.mod && go mod download
 
 COPY . .
+RUN sed -i 's|=> ../shed/sdk|=> /shed-sdk|' go.mod
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -ldflags "-s -w \
