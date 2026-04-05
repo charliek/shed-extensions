@@ -17,7 +17,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/charliek/shed-extensions/internal/hostclient"
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
@@ -55,7 +56,7 @@ func TestSSHHandlerList(t *testing.T) {
 		},
 	}
 
-	var responded protocol.Envelope
+	var responded sdk.Envelope
 	respondCalled := make(chan struct{}, 1)
 
 	// Mock shed-server with SSE + respond endpoints
@@ -66,8 +67,8 @@ func TestSSHHandlerList(t *testing.T) {
 			// SSE stream — send one list request then keep alive
 			listReq := protocol.SSHListRequest{Operation: protocol.SSHOpList}
 			payload, _ := json.Marshal(listReq)
-			env := protocol.NewEnvelope(protocol.NamespaceSSHAgent, protocol.MessageTypeRequest, payload)
-			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			env := sdk.NewEnvelope(protocol.NamespaceSSHAgent, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -87,7 +88,7 @@ func TestSSHHandlerList(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
@@ -150,8 +151,8 @@ func TestSSHHandlerSign(t *testing.T) {
 				Flags:     0,
 			}
 			payload, _ := json.Marshal(signReq)
-			env := protocol.NewEnvelope(protocol.NamespaceSSHAgent, protocol.MessageTypeRequest, payload)
-			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			env := sdk.NewEnvelope(protocol.NamespaceSSHAgent, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -162,7 +163,7 @@ func TestSSHHandlerSign(t *testing.T) {
 			<-r.Context().Done()
 
 		case http.MethodPost:
-			var env protocol.Envelope
+			var env sdk.Envelope
 			json.NewDecoder(r.Body).Decode(&env)
 			w.WriteHeader(http.StatusNoContent)
 			respondCalled <- env.Payload
@@ -170,7 +171,7 @@ func TestSSHHandlerSign(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
@@ -207,7 +208,7 @@ func TestSSHHandlerPing(t *testing.T) {
 		case http.MethodGet:
 			pingReq := protocol.SSHPingRequest{Operation: protocol.SSHOpPing}
 			payload, _ := json.Marshal(pingReq)
-			env := protocol.NewEnvelope(protocol.NamespaceSSHAgent, protocol.MessageTypeRequest, payload)
+			env := sdk.NewEnvelope(protocol.NamespaceSSHAgent, sdk.MessageTypeRequest, payload)
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -218,7 +219,7 @@ func TestSSHHandlerPing(t *testing.T) {
 			<-r.Context().Done()
 
 		case http.MethodPost:
-			var env protocol.Envelope
+			var env sdk.Envelope
 			json.NewDecoder(r.Body).Decode(&env)
 			w.WriteHeader(http.StatusNoContent)
 			respondCalled <- env.Payload
@@ -226,7 +227,7 @@ func TestSSHHandlerPing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
@@ -266,8 +267,8 @@ func TestSSHHandlerStatus(t *testing.T) {
 		case http.MethodGet:
 			statusReq := protocol.SSHStatusRequest{Operation: protocol.SSHOpStatus}
 			payload, _ := json.Marshal(statusReq)
-			env := protocol.NewEnvelope(protocol.NamespaceSSHAgent, protocol.MessageTypeRequest, payload)
-			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			env := sdk.NewEnvelope(protocol.NamespaceSSHAgent, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -278,7 +279,7 @@ func TestSSHHandlerStatus(t *testing.T) {
 			<-r.Context().Done()
 
 		case http.MethodPost:
-			var env protocol.Envelope
+			var env sdk.Envelope
 			json.NewDecoder(r.Body).Decode(&env)
 			w.WriteHeader(http.StatusNoContent)
 			respondCalled <- env.Payload
@@ -286,7 +287,7 @@ func TestSSHHandlerStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 

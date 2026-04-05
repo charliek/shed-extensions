@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charliek/shed-extensions/internal/hostclient"
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
@@ -25,7 +26,7 @@ func TestAWSHandlerGetCredentials(t *testing.T) {
 		},
 	}
 
-	var responded protocol.Envelope
+	var responded sdk.Envelope
 	respondCalled := make(chan struct{}, 1)
 
 	var mu sync.Mutex
@@ -34,8 +35,8 @@ func TestAWSHandlerGetCredentials(t *testing.T) {
 		case http.MethodGet:
 			req := protocol.AWSCredentialsRequest{Operation: protocol.AWSOpGetCredentials}
 			payload, _ := json.Marshal(req)
-			env := protocol.NewEnvelope(protocol.NamespaceAWSCredentials, protocol.MessageTypeRequest, payload)
-			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			env := sdk.NewEnvelope(protocol.NamespaceAWSCredentials, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -55,7 +56,7 @@ func TestAWSHandlerGetCredentials(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
@@ -95,7 +96,7 @@ func TestAWSHandlerPing(t *testing.T) {
 		case http.MethodGet:
 			pingReq := protocol.AWSPingRequest{Operation: protocol.AWSOpPing}
 			payload, _ := json.Marshal(pingReq)
-			env := protocol.NewEnvelope(protocol.NamespaceAWSCredentials, protocol.MessageTypeRequest, payload)
+			env := sdk.NewEnvelope(protocol.NamespaceAWSCredentials, sdk.MessageTypeRequest, payload)
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -106,7 +107,7 @@ func TestAWSHandlerPing(t *testing.T) {
 			<-r.Context().Done()
 
 		case http.MethodPost:
-			var env protocol.Envelope
+			var env sdk.Envelope
 			json.NewDecoder(r.Body).Decode(&env)
 			w.WriteHeader(http.StatusNoContent)
 			respondCalled <- env.Payload
@@ -114,7 +115,7 @@ func TestAWSHandlerPing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
@@ -151,8 +152,8 @@ func TestAWSHandlerError(t *testing.T) {
 		case http.MethodGet:
 			req := protocol.AWSCredentialsRequest{Operation: protocol.AWSOpGetCredentials}
 			payload, _ := json.Marshal(req)
-			env := protocol.NewEnvelope(protocol.NamespaceAWSCredentials, protocol.MessageTypeRequest, payload)
-			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			env := sdk.NewEnvelope(protocol.NamespaceAWSCredentials, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -163,7 +164,7 @@ func TestAWSHandlerError(t *testing.T) {
 			<-r.Context().Done()
 
 		case http.MethodPost:
-			var env protocol.Envelope
+			var env sdk.Envelope
 			json.NewDecoder(r.Body).Decode(&env)
 			w.WriteHeader(http.StatusNoContent)
 			respondCalled <- env.Payload
@@ -171,7 +172,7 @@ func TestAWSHandlerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
@@ -205,8 +206,8 @@ func TestAWSHandlerStatus(t *testing.T) {
 		case http.MethodGet:
 			statusReq := protocol.AWSStatusRequest{Operation: protocol.AWSOpStatus}
 			payload, _ := json.Marshal(statusReq)
-			env := protocol.NewEnvelope(protocol.NamespaceAWSCredentials, protocol.MessageTypeRequest, payload)
-			env.Shed = &protocol.ShedInfo{Name: "test-shed"}
+			env := sdk.NewEnvelope(protocol.NamespaceAWSCredentials, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
 			data, _ := json.Marshal(env)
 
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -217,7 +218,7 @@ func TestAWSHandlerStatus(t *testing.T) {
 			<-r.Context().Done()
 
 		case http.MethodPost:
-			var env protocol.Envelope
+			var env sdk.Envelope
 			json.NewDecoder(r.Body).Decode(&env)
 			w.WriteHeader(http.StatusNoContent)
 			respondCalled <- env.Payload
@@ -225,7 +226,7 @@ func TestAWSHandlerStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := hostclient.New(hostclient.WithServerURL(srv.URL))
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 

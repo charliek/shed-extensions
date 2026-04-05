@@ -10,21 +10,22 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/charliek/shed-extensions/internal/hostclient"
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
 // SSHHandler processes SSH agent requests from the plugin message bus.
 type SSHHandler struct {
 	backend  SSHBackend
-	client   *hostclient.Client
+	client   *sdk.HostClient
 	approval ApprovalGate
 	audit    *AuditLogger
 	logger   *slog.Logger
 }
 
 // NewSSHHandler creates a handler for the ssh-agent namespace.
-func NewSSHHandler(backend SSHBackend, client *hostclient.Client, approval ApprovalGate, audit *AuditLogger, logger *slog.Logger) *SSHHandler {
+func NewSSHHandler(backend SSHBackend, client *sdk.HostClient, approval ApprovalGate, audit *AuditLogger, logger *slog.Logger) *SSHHandler {
 	return &SSHHandler{
 		backend:  backend,
 		client:   client,
@@ -44,7 +45,7 @@ func (h *SSHHandler) Run(ctx context.Context) {
 	}
 }
 
-func (h *SSHHandler) handleMessage(ctx context.Context, env *protocol.Envelope) {
+func (h *SSHHandler) handleMessage(ctx context.Context, env *sdk.Envelope) {
 	shedName := ""
 	if env.Shed != nil {
 		shedName = env.Shed.Name
@@ -75,7 +76,7 @@ func (h *SSHHandler) handleMessage(ctx context.Context, env *protocol.Envelope) 
 	}
 }
 
-func (h *SSHHandler) handleList(ctx context.Context, env *protocol.Envelope, shedName string) {
+func (h *SSHHandler) handleList(ctx context.Context, env *sdk.Envelope, shedName string) {
 	keys, err := h.backend.List()
 	if err != nil {
 		h.logger.Error("list keys failed", "error", err, "shed", shedName)
@@ -99,7 +100,7 @@ func (h *SSHHandler) handleList(ctx context.Context, env *protocol.Envelope, she
 	h.logger.Debug("list keys", "count", len(keys), "shed", shedName)
 }
 
-func (h *SSHHandler) handleSign(ctx context.Context, env *protocol.Envelope, shedName string) {
+func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName string) {
 	var req protocol.SSHSignRequest
 	if err := json.Unmarshal(env.Payload, &req); err != nil {
 		h.sendError(ctx, env, "invalid sign request", protocol.SSHCodeInternal)
@@ -154,13 +155,13 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *protocol.Envelope, she
 	h.logger.Debug("sign completed", "key_type", pubKey.Type(), "shed", shedName)
 }
 
-func (h *SSHHandler) handlePing(ctx context.Context, env *protocol.Envelope, shedName string) {
+func (h *SSHHandler) handlePing(ctx context.Context, env *sdk.Envelope, shedName string) {
 	resp := protocol.SSHPingResponse{Status: "ok"}
 	h.sendResponse(ctx, env, resp)
 	h.logger.Debug("ping", "shed", shedName)
 }
 
-func (h *SSHHandler) handleStatus(ctx context.Context, env *protocol.Envelope, shedName string) {
+func (h *SSHHandler) handleStatus(ctx context.Context, env *sdk.Envelope, shedName string) {
 	keys, err := h.backend.List()
 	keyCount := 0
 	if err == nil {
@@ -176,14 +177,14 @@ func (h *SSHHandler) handleStatus(ctx context.Context, env *protocol.Envelope, s
 	h.logger.Debug("status", "mode", resp.Mode, "keys", keyCount, "shed", shedName)
 }
 
-func (h *SSHHandler) sendResponse(ctx context.Context, req *protocol.Envelope, payload any) {
+func (h *SSHHandler) sendResponse(ctx context.Context, req *sdk.Envelope, payload any) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		h.logger.Error("failed to marshal response", "error", err)
 		return
 	}
 
-	resp := protocol.NewResponse(req.ID, req.Namespace, data)
+	resp := sdk.NewResponse(req.ID, req.Namespace, data)
 	resp.Shed = req.Shed
 
 	if err := h.client.Respond(ctx, req.Namespace, resp); err != nil {
@@ -191,7 +192,7 @@ func (h *SSHHandler) sendResponse(ctx context.Context, req *protocol.Envelope, p
 	}
 }
 
-func (h *SSHHandler) sendError(ctx context.Context, req *protocol.Envelope, msg, code string) {
+func (h *SSHHandler) sendError(ctx context.Context, req *sdk.Envelope, msg, code string) {
 	errResp := protocol.SSHErrorResponse{Error: msg, Code: code}
 	h.sendResponse(ctx, req, errResp)
 }

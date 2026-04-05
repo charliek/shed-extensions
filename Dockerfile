@@ -1,8 +1,9 @@
 # Multi-arch Dockerfile for shed-extensions guest artifact image.
 #
 # Produces a scratch-based image containing only:
-#   /usr/local/bin/shed-ssh-agent, /usr/local/bin/shed-aws-proxy, /usr/local/bin/shed-ext
-#   /etc/systemd/system/shed-{ssh-agent,aws-proxy}.service
+#   /usr/local/bin/shed-ext-ssh-agent, /usr/local/bin/shed-ext-aws-credentials
+#   /etc/systemd/system/shed-ext-{ssh-agent,aws-credentials}.service
+#   /etc/shed-extensions.d/*.yaml (extension manifests)
 #   /etc/environment.d/shed-extensions.conf
 #
 # Consumed by shed's VZ and Firecracker Dockerfiles via COPY --from=.
@@ -38,19 +39,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
         -X github.com/charliek/shed-extensions/internal/version.Version=${VERSION} \
         -X github.com/charliek/shed-extensions/internal/version.GitCommit=${GIT_COMMIT} \
         -X github.com/charliek/shed-extensions/internal/version.BuildDate=${BUILD_DATE}" \
-      -o /out/shed-ssh-agent ./cmd/shed-ssh-agent && \
+      -o /out/shed-ext-ssh-agent ./cmd/shed-ext-ssh-agent && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -ldflags "-s -w \
         -X github.com/charliek/shed-extensions/internal/version.Version=${VERSION} \
         -X github.com/charliek/shed-extensions/internal/version.GitCommit=${GIT_COMMIT} \
         -X github.com/charliek/shed-extensions/internal/version.BuildDate=${BUILD_DATE}" \
-      -o /out/shed-aws-proxy ./cmd/shed-aws-proxy && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
-      -ldflags "-s -w \
-        -X github.com/charliek/shed-extensions/internal/version.Version=${VERSION} \
-        -X github.com/charliek/shed-extensions/internal/version.GitCommit=${GIT_COMMIT} \
-        -X github.com/charliek/shed-extensions/internal/version.BuildDate=${BUILD_DATE}" \
-      -o /out/shed-ext ./cmd/shed-ext
+      -o /out/shed-ext-aws-credentials ./cmd/shed-ext-aws-credentials
 
 FROM scratch
 
