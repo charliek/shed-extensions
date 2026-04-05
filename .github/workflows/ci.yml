@@ -14,6 +14,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
+      # Check out shed SDK for the replace directive
+      - uses: actions/checkout@v6
+        with:
+          repository: charliek/shed
+          ref: feature/extension-system
+          path: shed
+          sparse-checkout: sdk
+      - run: sed -i 's|=> ../shed/sdk|=> ./shed/sdk|' go.mod
       - run: go test -v ./...
 
   lint:
@@ -23,6 +31,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
+      # Check out shed SDK for the replace directive
+      - uses: actions/checkout@v6
+        with:
+          repository: charliek/shed
+          ref: feature/extension-system
+          path: shed
+          sparse-checkout: sdk
+      - run: sed -i 's|=> ../shed/sdk|=> ./shed/sdk|' go.mod
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.10.1
