@@ -5,8 +5,8 @@
 ```mermaid
 graph TB
     subgraph "shed microVM"
-        SSH[SSH client / git] --> SSA[shed-ssh-agent<br/>Unix socket]
-        AWS[AWS SDK] --> AWP[shed-aws-proxy<br/>HTTP :499]
+        SSH[SSH client / git] --> SSA[shed-ext-ssh-agent<br/>Unix socket]
+        AWS[AWS SDK] --> AWP[shed-ext-aws-credentials<br/>HTTP :499]
         SSA --> BUS[shed-agent<br/>127.0.0.1:498]
         AWP --> BUS
     end
@@ -24,32 +24,32 @@ graph TB
 
 ### SSH Sign Request
 
-1. SSH client connects to `shed-ssh-agent` via `SSH_AUTH_SOCK`
-2. `shed-ssh-agent` translates the SSH agent protocol `Sign()` call into a JSON envelope
+1. SSH client connects to `shed-ext-ssh-agent` via `SSH_AUTH_SOCK`
+2. `shed-ext-ssh-agent` translates the SSH agent protocol `Sign()` call into a JSON envelope
 3. Envelope is POSTed to `http://127.0.0.1:498/v1/publish` (shed-agent's HTTP endpoint)
 4. shed-agent sends the message over vsock to shed-server
 5. shed-server routes the message to the `ssh-agent` namespace listener via SSE
 6. `shed-host-agent` receives the envelope, dispatches to the SSH backend
 7. SSH backend performs the signing operation using host keys
-8. Response envelope flows back: host-agent -> shed-server -> shed-agent -> shed-ssh-agent
-9. `shed-ssh-agent` returns the signature to the SSH client
+8. Response envelope flows back: host-agent -> shed-server -> shed-agent -> shed-ext-ssh-agent
+9. `shed-ext-ssh-agent` returns the signature to the SSH client
 
 ### AWS Credential Request
 
 1. AWS SDK calls `GET http://127.0.0.1:499/credentials` (via `AWS_CONTAINER_CREDENTIALS_FULL_URI`)
-2. `shed-aws-proxy` translates the HTTP request into a JSON envelope
+2. `shed-ext-aws-credentials` translates the HTTP request into a JSON envelope
 3. Envelope is POSTed to the shed-agent publish endpoint
 4. shed-server routes the message to the `aws-credentials` namespace listener via SSE
 5. `shed-host-agent` receives the envelope, checks its credential cache
 6. If cached credentials are still valid (>5 min remaining), return immediately
 7. If stale, call `sts:AssumeRole` with the configured role, cache result
-8. Response flows back to `shed-aws-proxy`, which returns the AWS SDK-expected format
+8. Response flows back to `shed-ext-aws-credentials`, which returns the AWS SDK-expected format
 9. The SDK caches the credential in memory and manages its own refresh
 
 ```mermaid
 sequenceDiagram
     participant SDK as AWS SDK
-    participant Proxy as shed-aws-proxy
+    participant Proxy as shed-ext-aws-credentials
     participant Bus as Message Bus
     participant Host as shed-host-agent
     participant STS as AWS STS
@@ -74,8 +74,8 @@ sequenceDiagram
 
 - **`internal/sshagent/`** — Implements `golang.org/x/crypto/ssh/agent.Agent`. Each method marshals a request, POSTs to the publish endpoint, and unmarshals the response.
 - **`internal/awsproxy/`** — HTTP handler for the AWS container credential endpoint. Translates `GET /credentials` into message bus requests. Returns the PascalCase JSON format the AWS SDK expects.
-- **`cmd/shed-ssh-agent/`** — Unix socket listener. Creates a new agent instance per connection. Handles startup health check and graceful shutdown.
-- **`cmd/shed-aws-proxy/`** — HTTP server on port 499. Routes `/credentials` to the proxy handler.
+- **`cmd/shed-ext-ssh-agent/`** — Unix socket listener. Creates a new agent instance per connection. Handles startup health check and graceful shutdown.
+- **`cmd/shed-ext-aws-credentials/`** — HTTP server on port 499. Routes `/credentials` to the proxy handler.
 
 ### Host-Side
 

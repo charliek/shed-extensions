@@ -53,9 +53,8 @@ See the [shed image variants documentation](https://charliek.github.io/shed/refe
 
 The `experimental` image includes:
 
-- `shed-ssh-agent` — SSH agent proxy on `/run/shed-extensions/ssh-agent.sock`
-- `shed-aws-proxy` — AWS credential endpoint on `http://127.0.0.1:499`
-- `shed-ext` — CLI for checking namespace connectivity and health
+- `shed-ext-ssh-agent` — SSH agent proxy on `/run/shed-extensions/ssh-agent.sock`
+- `shed-ext-aws-credentials` — AWS credential endpoint on `http://127.0.0.1:499`
 - Environment variables `SSH_AUTH_SOCK` and `AWS_CONTAINER_CREDENTIALS_FULL_URI` pre-configured
 
 ## Verify SSH
@@ -99,14 +98,14 @@ aws:
 ### SSH Flow
 
 1. `git push` inside the shed triggers an SSH sign request
-2. `shed-ssh-agent` sends the request through the message bus
+2. `shed-ext-ssh-agent` sends the request through the message bus
 3. `shed-host-agent` signs with your local SSH key
 4. The signature flows back — git push succeeds
 
 ### AWS Flow
 
 1. AWS SDK calls `GET http://127.0.0.1:499/credentials`
-2. `shed-aws-proxy` sends the request through the message bus
+2. `shed-ext-aws-credentials` sends the request through the message bus
 3. `shed-host-agent` calls `sts:AssumeRole` (or returns cached credentials)
 4. Temporary credentials flow back — SDK call succeeds
 5. Credentials expire in 1 hour; SDK handles automatic refresh

@@ -4,9 +4,9 @@ The `ssh-agent` namespace brokers SSH key operations between the shed microVM an
 
 ## How It Works
 
-`shed-ssh-agent` runs inside the VM as a systemd service, listening on a Unix domain socket at `/run/shed-extensions/ssh-agent.sock`. The `SSH_AUTH_SOCK` environment variable points all SSH clients to this socket.
+`shed-ext-ssh-agent` runs inside the VM as a systemd service, listening on a Unix domain socket at `/run/shed-extensions/ssh-agent.sock`. The `SSH_AUTH_SOCK` environment variable points all SSH clients to this socket.
 
-When an SSH client (git, ssh, scp) requests a key operation, `shed-ssh-agent` translates it into a message bus request and forwards it to the host agent for processing.
+When an SSH client (git, ssh, scp) requests a key operation, `shed-ext-ssh-agent` translates it into a message bus request and forwards it to the host agent for processing.
 
 ## Operations
 
@@ -78,7 +78,7 @@ ssh:
 
 ## Timeouts
 
-Credential requests use a 3-second timeout. On timeout, `shed-ssh-agent` logs an actionable error:
+Credential requests use a 3-second timeout. On timeout, `shed-ext-ssh-agent` logs an actionable error:
 
 ```text
 ERROR: ssh-agent sign request timed out — shed-host-agent may not be running.
@@ -86,4 +86,4 @@ ERROR: ssh-agent sign request timed out — shed-host-agent may not be running.
 
 ## Startup Health Check
 
-On startup, `shed-ssh-agent` publishes a ping to the `ssh-agent` namespace. If no response arrives within 2 seconds, it logs a warning but continues starting (so it's ready when the host agent comes up).
+On startup, `shed-ext-ssh-agent` publishes a ping to the `ssh-agent` namespace. If no response arrives within 2 seconds, it logs a warning but continues starting (so it's ready when the host agent comes up).

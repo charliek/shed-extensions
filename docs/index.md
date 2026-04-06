@@ -13,8 +13,8 @@ Standard tools work without changes — `git push`, AWS SDKs, `ssh` — all tran
 ```mermaid
 graph LR
     subgraph "shed microVM (Linux guest)"
-        A[SSH client / git] --> B[shed-ssh-agent]
-        C[AWS SDK] --> D[shed-aws-proxy]
+        A[SSH client / git] --> B[shed-ext-ssh-agent]
+        C[AWS SDK] --> D[shed-ext-aws-credentials]
         B --> E[shed-agent bus<br/>127.0.0.1:498]
         D --> E
     end
@@ -44,6 +44,6 @@ graph LR
 
 ## Image Distribution
 
-Guest components (`shed-ssh-agent`, `shed-aws-proxy`, `shed-ext`) are pre-installed in shed's [`experimental` image variant](https://charliek.github.io/shed/reference/images/). Create a shed with `--image experimental` to get credential brokering out of the box.
+Guest components (`shed-ext-ssh-agent`, `shed-ext-aws-credentials`) are pre-installed in shed's [`experimental` image variant](https://charliek.github.io/shed/reference/images/). Create a shed with `--image experimental` to get credential brokering out of the box.
 
 The host component (`shed-host-agent`) is installed separately — see [Getting Started](getting-started/quick-start.md) for setup instructions.

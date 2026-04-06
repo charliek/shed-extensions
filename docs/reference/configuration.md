@@ -75,7 +75,7 @@ None. The opinionated base image configures everything:
 
 - `SSH_AUTH_SOCK=/run/shed-extensions/ssh-agent.sock` via `/etc/environment.d/shed-extensions.conf`
 - `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:499/credentials` via `/etc/environment.d/shed-extensions.conf`
-- `shed-ssh-agent` and `shed-aws-proxy` start via systemd at boot
+- `shed-ext-ssh-agent` and `shed-ext-aws-credentials` start via systemd at boot
 
 ## CLI Flags
 
@@ -85,22 +85,17 @@ None. The opinionated base image configures everything:
 |------|---------|-------------|
 | `--config` | `~/.config/shed/extensions.yaml` | Path to config file |
 
-### shed-ssh-agent
+### shed-ext-ssh-agent
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--sock` | `/run/shed-extensions/ssh-agent.sock` | Unix socket path |
 | `--publish-url` | `http://127.0.0.1:498/v1/publish` | shed-agent publish endpoint |
 
-### shed-aws-proxy
+### shed-ext-aws-credentials
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port` | `499` | HTTP listen port |
 | `--publish-url` | `http://127.0.0.1:498/v1/publish` | shed-agent publish endpoint |
 
-### shed-ext
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--publish-url` | `http://127.0.0.1:498/v1/publish` | shed-agent publish endpoint |
