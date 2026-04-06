@@ -4,14 +4,14 @@ The `aws-credentials` namespace brokers AWS credential access between shed micro
 
 ## How It Works
 
-`shed-aws-proxy` runs inside the VM as a systemd service, listening on `http://127.0.0.1:499`. The `AWS_CONTAINER_CREDENTIALS_FULL_URI` environment variable points all AWS SDKs to this endpoint.
+`shed-ext-aws-credentials` runs inside the VM as a systemd service, listening on `http://127.0.0.1:499`. The `AWS_CONTAINER_CREDENTIALS_FULL_URI` environment variable points all AWS SDKs to this endpoint.
 
-When an AWS SDK requests credentials, `shed-aws-proxy` translates the request into a message bus call to the host agent. The host agent performs `sts:AssumeRole` using the developer's local AWS profile and returns temporary credentials.
+When an AWS SDK requests credentials, `shed-ext-aws-credentials` translates the request into a message bus call to the host agent. The host agent performs `sts:AssumeRole` using the developer's local AWS profile and returns temporary credentials.
 
 ```mermaid
 sequenceDiagram
     participant SDK as AWS SDK (any language)
-    participant Proxy as shed-aws-proxy (VM)
+    participant Proxy as shed-ext-aws-credentials (VM)
     participant Bus as Message Bus
     participant Host as shed-host-agent (Mac)
     participant STS as AWS STS
@@ -150,4 +150,4 @@ Credential requests use a 3-second timeout. On timeout, the proxy returns:
 
 ## Startup Health Check
 
-On startup, `shed-aws-proxy` pings the `aws-credentials` namespace. If no response arrives within 2 seconds, it logs a warning but continues starting.
+On startup, `shed-ext-aws-credentials` pings the `aws-credentials` namespace. If no response arrives within 2 seconds, it logs a warning but continues starting.

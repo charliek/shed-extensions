@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/charliek/shed-extensions/internal/protocol"
+	sdk "github.com/charliek/shed/sdk"
 )
 
 // PublishRequest mirrors the bus publish request for test decoding.
@@ -45,7 +45,7 @@ func NewMockPublishServer(t *testing.T, expectedNamespace string, handler func(j
 		}
 
 		respPayload := handler(pubReq.Payload)
-		env := protocol.NewResponse("mock-req", pubReq.Namespace, respPayload)
+		env := sdk.NewResponse("mock-req", pubReq.Namespace, respPayload)
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(env); err != nil {
 			t.Errorf("failed to encode response: %v", err)

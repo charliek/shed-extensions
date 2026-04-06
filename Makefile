@@ -18,12 +18,10 @@ build-host:
 # Build guest binaries (Linux, pure Go)
 build-guest:
 	@mkdir -p dist/linux-arm64 dist/linux-amd64
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-ssh-agent ./cmd/shed-ssh-agent
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-ssh-agent ./cmd/shed-ssh-agent
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-aws-proxy ./cmd/shed-aws-proxy
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-aws-proxy ./cmd/shed-aws-proxy
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-ext ./cmd/shed-ext
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-ext ./cmd/shed-ext
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-ext-ssh-agent ./cmd/shed-ext-ssh-agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-ext-ssh-agent ./cmd/shed-ext-ssh-agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-ext-aws-credentials ./cmd/shed-ext-aws-credentials
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-ext-aws-credentials ./cmd/shed-ext-aws-credentials
 
 # Run all unit tests
 test:

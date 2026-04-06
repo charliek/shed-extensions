@@ -12,14 +12,15 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/charliek/shed-extensions/internal/busclient"
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
 // Agent implements ssh/agent.Agent by forwarding operations through the
 // shed plugin message bus.
 type Agent struct {
-	bus *busclient.Client
+	bus *sdk.BusClient
 }
 
 // Option configures an Agent.
@@ -35,7 +36,7 @@ func WithPublishURL(url string) Option {
 // New creates a new Agent that publishes requests to the given URL.
 func New(opts ...Option) *Agent {
 	a := &Agent{
-		bus: busclient.New(busclient.DefaultPublishURL, busclient.DefaultTimeout),
+		bus: sdk.NewBusClient(sdk.DefaultPublishURL, sdk.DefaultBusTimeout),
 	}
 	for _, opt := range opts {
 		opt(a)

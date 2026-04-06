@@ -1,5 +1,5 @@
 [Unit]
-Description=shed SSH Agent (credential proxy)
+Description=shed-ext SSH Agent (credential proxy)
 After=network.target shed-agent.service
 Wants=shed-agent.service
 
@@ -8,7 +8,7 @@ Type=simple
 User=shed
 Group=shed
 RuntimeDirectory=shed-extensions
-ExecStart=/usr/local/bin/shed-ssh-agent \
+ExecStart=/usr/local/bin/shed-ext-ssh-agent \
   --sock /run/shed-extensions/ssh-agent.sock \
   --publish-url http://127.0.0.1:498/v1/publish
 Restart=always

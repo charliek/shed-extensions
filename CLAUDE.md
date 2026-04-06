@@ -24,9 +24,8 @@ Tools are managed via [mise](https://mise.jdx.dev/) — run `mise install` to se
 ## Project Structure
 
 - `cmd/shed-host-agent/` — Host-side daemon (macOS): subscribes to shed-server plugin bus, handles SSH and AWS credential operations
-- `cmd/shed-ssh-agent/` — Guest-side SSH agent adapter (Linux): translates SSH agent protocol to message bus requests
-- `cmd/shed-aws-proxy/` — Guest-side AWS credential proxy (Linux): serves AWS container credential endpoint, translates to message bus requests
-- `cmd/shed-ext/` — Guest-side status CLI (Linux): in-VM health check for namespace connectivity
+- `cmd/shed-ext-ssh-agent/` — Guest-side SSH agent adapter (Linux): translates SSH agent protocol to message bus requests
+- `cmd/shed-ext-aws-credentials/` — Guest-side AWS credential proxy (Linux): serves AWS container credential endpoint, translates to message bus requests
 - `internal/protocol/` — Shared envelope and payload types (JSON wire format matches shed's plugin types)
 - `internal/busclient/` — Shared guest-side publish-to-bus client (used by all guest binaries)
 - `internal/sshagent/` — SSH agent.Agent implementation that publishes to the message bus

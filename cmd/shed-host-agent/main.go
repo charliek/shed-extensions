@@ -13,7 +13,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/charliek/shed-extensions/internal/hostclient"
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/version"
 )
 
@@ -33,9 +34,9 @@ func main() {
 	}
 
 	// Initialize host client (shared by all handlers)
-	client := hostclient.New(
-		hostclient.WithServerURL(cfg.Server),
-		hostclient.WithLogger(logger),
+	client := sdk.NewHostClient(
+		sdk.WithServerURL(cfg.Server),
+		sdk.WithLogger(logger),
 	)
 
 	// Initialize approval gate (Touch ID on macOS, no-op elsewhere)

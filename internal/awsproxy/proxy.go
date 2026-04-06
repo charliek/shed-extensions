@@ -11,7 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/charliek/shed-extensions/internal/busclient"
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
@@ -34,7 +35,7 @@ type awsSDKErrorResponse struct {
 // Proxy handles AWS credential requests from the SDK and translates them
 // into message bus requests.
 type Proxy struct {
-	bus    *busclient.Client
+	bus    *sdk.BusClient
 	logger *slog.Logger
 }
 
@@ -58,7 +59,7 @@ func WithLogger(logger *slog.Logger) Option {
 // New creates a new Proxy with the given options.
 func New(opts ...Option) *Proxy {
 	p := &Proxy{
-		bus:    busclient.New(busclient.DefaultPublishURL, busclient.DefaultTimeout),
+		bus:    sdk.NewBusClient(sdk.DefaultPublishURL, sdk.DefaultBusTimeout),
 		logger: slog.Default(),
 	}
 	for _, opt := range opts {

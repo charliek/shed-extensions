@@ -10,8 +10,8 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 ┌─────────────────────────────────┐
 │  shed microVM (Linux guest)     │
 │                                 │
-│  SSH client ──▶ shed-ssh-agent  │
-│  AWS SDK   ──▶ shed-aws-proxy  │
+│  SSH client ──▶ shed-ext-ssh-agent  │
+│  AWS SDK   ──▶ shed-ext-aws-credentials  │
 │                    │            │
 │              POST /v1/publish   │
 │                    │            │
@@ -79,14 +79,14 @@ Use the extensions-enabled shed base image — guest-side binaries and systemd u
 From inside a shed:
 
 ```bash
-# Check extension status
-shed-ext status
-
 # SSH — sign with your host key
 ssh -T git@github.com
 
 # AWS — get temporary credentials via STS
 aws sts get-caller-identity
+
+# Check extension health (from host)
+shed list -vv
 ```
 
 ## Security Properties

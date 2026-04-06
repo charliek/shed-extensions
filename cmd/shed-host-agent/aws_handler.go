@@ -6,20 +6,21 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/charliek/shed-extensions/internal/hostclient"
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
 // AWSHandler processes AWS credential requests from the plugin message bus.
 type AWSHandler struct {
 	backend AWSBackend
-	client  *hostclient.Client
+	client  *sdk.HostClient
 	audit   *AuditLogger
 	logger  *slog.Logger
 }
 
 // NewAWSHandler creates a handler for the aws-credentials namespace.
-func NewAWSHandler(backend AWSBackend, client *hostclient.Client, audit *AuditLogger, logger *slog.Logger) *AWSHandler {
+func NewAWSHandler(backend AWSBackend, client *sdk.HostClient, audit *AuditLogger, logger *slog.Logger) *AWSHandler {
 	return &AWSHandler{
 		backend: backend,
 		client:  client,
@@ -38,7 +39,7 @@ func (h *AWSHandler) Run(ctx context.Context) {
 	}
 }
 
-func (h *AWSHandler) handleMessage(ctx context.Context, env *protocol.Envelope) {
+func (h *AWSHandler) handleMessage(ctx context.Context, env *sdk.Envelope) {
 	shedName := ""
 	if env.Shed != nil {
 		shedName = env.Shed.Name
@@ -66,7 +67,7 @@ func (h *AWSHandler) handleMessage(ctx context.Context, env *protocol.Envelope) 
 	}
 }
 
-func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *protocol.Envelope, shedName string) {
+func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *sdk.Envelope, shedName string) {
 	creds, err := h.backend.GetCredentials(ctx, shedName)
 	if err != nil {
 		h.logger.Error("get credentials failed", "error", err, "shed", shedName)
@@ -87,13 +88,13 @@ func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *protocol.Env
 	h.logger.Debug("credentials served", "shed", shedName, "expires", creds.Expiration)
 }
 
-func (h *AWSHandler) handlePing(ctx context.Context, env *protocol.Envelope, shedName string) {
+func (h *AWSHandler) handlePing(ctx context.Context, env *sdk.Envelope, shedName string) {
 	resp := protocol.AWSPingResponse{Status: "ok"}
 	h.sendResponse(ctx, env, resp)
 	h.logger.Debug("ping", "shed", shedName)
 }
 
-func (h *AWSHandler) handleStatus(ctx context.Context, env *protocol.Envelope, shedName string) {
+func (h *AWSHandler) handleStatus(ctx context.Context, env *sdk.Envelope, shedName string) {
 	role, cachedUntil := h.backend.Status(shedName)
 
 	resp := protocol.AWSStatusResponse{
@@ -108,14 +109,14 @@ func (h *AWSHandler) handleStatus(ctx context.Context, env *protocol.Envelope, s
 	h.logger.Debug("status", "role", role, "shed", shedName)
 }
 
-func (h *AWSHandler) sendResponse(ctx context.Context, req *protocol.Envelope, payload any) {
+func (h *AWSHandler) sendResponse(ctx context.Context, req *sdk.Envelope, payload any) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		h.logger.Error("failed to marshal response", "error", err)
 		return
 	}
 
-	resp := protocol.NewResponse(req.ID, req.Namespace, data)
+	resp := sdk.NewResponse(req.ID, req.Namespace, data)
 	resp.Shed = req.Shed
 
 	if err := h.client.Respond(ctx, req.Namespace, resp); err != nil {
@@ -123,7 +124,7 @@ func (h *AWSHandler) sendResponse(ctx context.Context, req *protocol.Envelope, p
 	}
 }
 
-func (h *AWSHandler) sendError(ctx context.Context, req *protocol.Envelope, msg, code string) {
+func (h *AWSHandler) sendError(ctx context.Context, req *sdk.Envelope, msg, code string) {
 	errResp := protocol.AWSErrorResponse{Error: msg, Code: code}
 	h.sendResponse(ctx, req, errResp)
 }

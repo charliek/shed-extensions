@@ -1,4 +1,4 @@
-// shed-aws-proxy is the guest-side AWS credential proxy that runs inside shed
+// shed-ext-aws-credentials is the guest-side AWS credential proxy that runs inside shed
 // microVMs. It serves the AWS container credential endpoint format and
 // translates SDK requests into message bus requests to the host agent.
 package main
@@ -26,7 +26,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 
-	logger.Info("starting shed-aws-proxy", "version", version.Info(), "port", *port, "publish_url", *publishURL)
+	logger.Info("starting shed-ext-aws-credentials", "version", version.Info(), "port", *port, "publish_url", *publishURL)
 
 	proxy := awsproxy.New(
 		awsproxy.WithPublishURL(*publishURL),
@@ -87,5 +87,5 @@ func main() {
 }
 
 func writeStatus(status string) {
-	_ = os.WriteFile("/run/shed-extensions/aws-proxy.status", []byte(status+"\n"), 0644)
+	_ = os.WriteFile("/run/shed-extensions/aws-credentials.status", []byte(status+"\n"), 0644)
 }

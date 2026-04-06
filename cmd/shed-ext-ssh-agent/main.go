@@ -1,4 +1,4 @@
-// shed-ssh-agent is the guest-side SSH agent that runs inside shed microVMs.
+// shed-ext-ssh-agent is the guest-side SSH agent that runs inside shed microVMs.
 // It implements the SSH agent protocol on a Unix domain socket and translates
 // SSH operations into message bus requests to the host agent.
 package main
@@ -27,7 +27,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 
-	logger.Info("starting shed-ssh-agent", "version", version.Info(), "sock", *sockPath, "publish_url", *publishURL)
+	logger.Info("starting shed-ext-ssh-agent", "version", version.Info(), "sock", *sockPath, "publish_url", *publishURL)
 
 	// Remove stale socket file
 	os.Remove(*sockPath)

@@ -47,7 +47,7 @@ Current approaches (copying key files into the VM, mounting `~/.aws/credentials`
 │  shed microVM (Linux guest)                         │
 │                                                     │
 │  ┌──────────────┐     ┌──────────────────────────┐  │
-│  │  SSH client   │────▶│  shed-ssh-agent           │  │
+│  │  SSH client   │────▶│  shed-ext-ssh-agent           │  │
 │  │  (git push)   │     │  Unix socket listener     │  │
 │  └──────────────┘     │  SSH_AUTH_SOCK             │  │
 │                        │       │                    │  │
@@ -58,7 +58,7 @@ Current approaches (copying key files into the VM, mounting `~/.aws/credentials`
 │         │                                           │
 │         ▼                                           │
 │  ┌──────────────────────────────────────────────┐   │
-│  │  shed-aws-proxy                               │   │
+│  │  shed-ext-aws-credentials                               │   │
 │  │  HTTP server on 127.0.0.1:499                 │   │
 │  │  AWS_CONTAINER_CREDENTIALS_FULL_URI           │   │
 │  │       │                                       │   │
@@ -90,9 +90,9 @@ Current approaches (copying key files into the VM, mounting `~/.aws/credentials`
 
 ### Guest-Side Binaries
 
-**`shed-ssh-agent`** — Implements the SSH agent protocol (`golang.org/x/crypto/ssh/agent`), listens on a Unix domain socket, and translates `Sign()` calls into message bus requests. Runs as a systemd service in the VM.
+**`shed-ext-ssh-agent`** — Implements the SSH agent protocol (`golang.org/x/crypto/ssh/agent`), listens on a Unix domain socket, and translates `Sign()` calls into message bus requests. Runs as a systemd service in the VM.
 
-**`shed-aws-proxy`** — Implements the AWS container credential endpoint (HTTP server) and translates SDK credential requests into message bus requests. Runs as a systemd service in the VM. The proxy is a passthrough — it does not cache credentials (see [Credential Caching](#credential-caching)).
+**`shed-ext-aws-credentials`** — Implements the AWS container credential endpoint (HTTP server) and translates SDK credential requests into message bus requests. Runs as a systemd service in the VM. The proxy is a passthrough — it does not cache credentials (see [Credential Caching](#credential-caching)).
 
 Both binaries are pure Go with no platform-specific dependencies. They cross-compile to `linux/amd64` and `linux/arm64` from any OS and ship pre-installed in the extensions-enabled base image.
 
@@ -108,7 +108,7 @@ Guest-side binaries ship as part of an opinionated shed base image. No runtime c
 
 The base image includes:
 
-- `shed-ssh-agent` and `shed-aws-proxy` binaries installed to `/usr/local/bin/`
+- `shed-ext-ssh-agent` and `shed-ext-aws-credentials` binaries installed to `/usr/local/bin/`
 - Systemd unit files that start both services at boot
 - Environment variables (`SSH_AUTH_SOCK`, `AWS_CONTAINER_CREDENTIALS_FULL_URI`) set globally via `/etc/environment.d/`
 - Health checks that report status back through the message bus
@@ -118,7 +118,7 @@ A developer creates a shed with the extensions-enabled image and everything just
 **Systemd units:**
 
 ```ini
-# shed-ssh-agent.service
+# shed-ext-ssh-agent.service
 [Unit]
 Description=shed SSH Agent (credential proxy)
 After=network.target shed-agent.service
@@ -129,7 +129,7 @@ Type=simple
 User=shed
 Group=shed
 RuntimeDirectory=shed-extensions
-ExecStart=/usr/local/bin/shed-ssh-agent \
+ExecStart=/usr/local/bin/shed-ext-ssh-agent \
   --sock /run/shed-extensions/ssh-agent.sock \
   --publish-url http://127.0.0.1:498/v1/publish
 Restart=always
@@ -140,7 +140,7 @@ WantedBy=multi-user.target
 ```
 
 ```ini
-# shed-aws-proxy.service
+# shed-ext-aws-credentials.service
 [Unit]
 Description=shed AWS Credential Proxy
 After=network.target shed-agent.service
@@ -152,7 +152,7 @@ User=shed
 Group=shed
 RuntimeDirectory=shed-extensions
 AmbientCapabilities=CAP_NET_BIND_SERVICE
-ExecStart=/usr/local/bin/shed-aws-proxy \
+ExecStart=/usr/local/bin/shed-ext-aws-credentials \
   --port 499 \
   --publish-url http://127.0.0.1:498/v1/publish
 Restart=always
@@ -332,14 +332,14 @@ aws:
 
 ### Credential Caching
 
-The guest-side proxy (`shed-aws-proxy`) does not cache credentials. Every SDK request passes through the message bus to the host handler, which maintains a single credential cache per shed per role.
+The guest-side proxy (`shed-ext-aws-credentials`) does not cache credentials. Every SDK request passes through the message bus to the host handler, which maintains a single credential cache per shed per role.
 
 The message bus round trip is sub-millisecond (vsock, same machine, no network stack), and the AWS SDKs only fetch credentials when their in-memory cache is stale — roughly once per hour. A single host-side cache avoids cache coherence complexity between layers.
 
 **Host cache behavior:**
 
 1. AWS SDK inside the VM calls `GET http://127.0.0.1:499/credentials`
-2. `shed-aws-proxy` publishes a request to `aws-credentials` namespace via the message bus
+2. `shed-ext-aws-credentials` publishes a request to `aws-credentials` namespace via the message bus
 3. Host handler checks its cache — if valid STS credentials exist with >5 minutes remaining, return immediately
 4. If cache is stale, call `sts:AssumeRole`, cache the result, return
 5. Response flows back through the bus to the proxy, which returns it to the SDK
@@ -374,7 +374,7 @@ The SDK's built-in refresh logic (5-15 minutes before expiry depending on langua
 
 ### Startup Health Check
 
-When `shed-ssh-agent` and `shed-aws-proxy` start (via systemd), each publishes a ping message to its namespace and waits up to 2 seconds for a response.
+When `shed-ext-ssh-agent` and `shed-ext-aws-credentials` start (via systemd), each publishes a ping message to its namespace and waits up to 2 seconds for a response.
 
 If the host agent responds, the service starts normally and logs confirmation. If no response arrives within 2 seconds, the service starts anyway (so it's ready when the host agent comes up later) but logs a clear warning:
 
@@ -390,11 +390,11 @@ This warning is visible in `journalctl` and also written to `/run/shed-extension
 
 Credential requests use a 3-second timeout (instead of the default 30-second message bus timeout). On timeout, the guest binary returns an error with actionable text.
 
-**SSH agent timeout** — the SSH client shows its standard "Permission denied (publickey)" error, but `shed-ssh-agent` also logs:
+**SSH agent timeout** — the SSH client shows its standard "Permission denied (publickey)" error, but `shed-ext-ssh-agent` also logs:
 
 ```
 ERROR: ssh-agent sign request timed out — shed-host-agent may not be running.
-Check with: journalctl -u shed-ssh-agent
+Check with: journalctl -u shed-ext-ssh-agent
 ```
 
 **AWS proxy timeout** — returned as an HTTP response the SDK can surface:
@@ -408,23 +408,22 @@ HTTP 503 Service Unavailable
 }
 ```
 
-### Status Command (Phase 3)
+### Extension Health (via shed-agent)
 
-A `shed-ext status` CLI inside the VM provides a quick health check:
+Extension health is now reported by shed-agent and visible via `shed list -vv` on the host:
 
+```text
+Extensions:
+  aws-credentials:     guest=running  host=connected
+  ssh-agent:           guest=running  host=connected
 ```
-$ shed-ext status
-ssh-agent:       ✓ connected (agent-forward mode, 3 keys available)
-aws-credentials: ✓ connected (role: arn:aws:iam::123:role/dev, cached until 15:45 UTC)
-```
 
-```
-$ shed-ext status
-ssh-agent:       ✗ not connected (shed-host-agent not responding)
-aws-credentials: ✗ not connected (shed-host-agent not responding)
+When the host agent is not running:
 
-Hint: start shed-host-agent on your Mac:
-  shed-host-agent --config ~/.config/shed/extensions.yaml
+```text
+Extensions:
+  aws-credentials:     guest=running  host=unreachable
+  ssh-agent:           guest=running  host=unreachable
 ```
 
 ## Configuration
@@ -522,35 +521,29 @@ shed-extensions/
 │   │   ├── aws_handler.go         # aws-credentials namespace handler
 │   │   ├── touchid_darwin.go      # Touch ID via LocalAuthentication
 │   │   └── touchid_stub.go        # No-op for non-Darwin builds
-│   ├── shed-ssh-agent/            # Guest-side: SSH agent protocol adapter
+│   ├── shed-ext-ssh-agent/        # Guest-side: SSH agent protocol adapter
 │   │   └── main.go
-│   ├── shed-aws-proxy/            # Guest-side: AWS credential endpoint
-│   │   └── main.go
-│   └── shed-ext/                  # Guest-side: status/health check CLI (Phase 3)
+│   └── shed-ext-aws-credentials/  # Guest-side: AWS credential endpoint
 │       └── main.go
 ├── internal/
-│   ├── protocol/                  # Shared envelope types, request/response structs
+│   ├── protocol/                  # Namespace-specific request/response types
 │   │   ├── ssh.go
 │   │   └── aws.go
-│   ├── busclient/                 # Shared guest-side publish-to-bus client
-│   │   ├── client.go
-│   │   └── client_test.go
-│   ├── sshagent/                  # agent.Agent implementation
+│   ├── sshagent/                  # agent.Agent implementation (uses sdk.BusClient)
 │   │   ├── agent.go
 │   │   └── agent_test.go
-│   ├── awsproxy/                  # AWS credential endpoint (passthrough to bus)
+│   ├── awsproxy/                  # AWS credential endpoint (uses sdk.BusClient)
 │   │   ├── proxy.go
 │   │   └── proxy_test.go
-│   └── hostclient/                # SSE client for shed-server plugin API
-│       ├── client.go
-│       └── client_test.go
+│   └── testutil/                  # Test helpers
+│       └── mockbus.go
 ├── image/                         # Base image overlay files
 │   ├── etc/
 │   │   ├── environment.d/
 │   │   │   └── shed-extensions.conf
 │   │   └── systemd/system/
-│   │       ├── shed-ssh-agent.service
-│   │       └── shed-aws-proxy.service
+│   │       ├── shed-ext-ssh-agent.service
+│   │       └── shed-ext-aws-credentials.service
 │   └── README.md
 ├── docs/
 │   ├── spec.md
@@ -568,10 +561,10 @@ shed-extensions/
 ```makefile
 .PHONY: build-guest
 build-guest:
-	GOOS=linux GOARCH=arm64 go build -o dist/linux-arm64/shed-ssh-agent ./cmd/shed-ssh-agent
-	GOOS=linux GOARCH=arm64 go build -o dist/linux-arm64/shed-aws-proxy ./cmd/shed-aws-proxy
-	GOOS=linux GOARCH=amd64 go build -o dist/linux-amd64/shed-ssh-agent ./cmd/shed-ssh-agent
-	GOOS=linux GOARCH=amd64 go build -o dist/linux-amd64/shed-aws-proxy ./cmd/shed-aws-proxy
+	GOOS=linux GOARCH=arm64 go build -o dist/linux-arm64/shed-ext-ssh-agent ./cmd/shed-ext-ssh-agent
+	GOOS=linux GOARCH=arm64 go build -o dist/linux-arm64/shed-ext-aws-credentials ./cmd/shed-ext-aws-credentials
+	GOOS=linux GOARCH=amd64 go build -o dist/linux-amd64/shed-ext-ssh-agent ./cmd/shed-ext-ssh-agent
+	GOOS=linux GOARCH=amd64 go build -o dist/linux-amd64/shed-ext-aws-credentials ./cmd/shed-ext-aws-credentials
 
 .PHONY: build-host
 build-host:
@@ -587,7 +580,7 @@ The host binary requires a macOS build environment (cgo for Touch ID). Guest bin
 1. Scaffold the `shed-extensions` repo, Go module, Makefile with cross-compile targets
 2. Implement `internal/hostclient/` — SSE client for shed-server plugin API (shared by all host handlers)
 3. Implement `internal/sshagent/` — the `agent.Agent` adapter that publishes sign requests to the message bus
-4. Implement `cmd/shed-ssh-agent/` — Unix socket listener, systemd-ready, startup health check ping, 3-second request timeout with actionable error messages
+4. Implement `cmd/shed-ext-ssh-agent/` — Unix socket listener, systemd-ready, startup health check ping, 3-second request timeout with actionable error messages
 5. Implement `cmd/shed-host-agent/` with SSH handler — SSE subscription to `ssh-agent` namespace
 6. Implement auto-detect SSH backend (agent-forward if `SSH_AUTH_SOCK` exists, local-keys fallback)
 7. Add Touch ID support behind `approval.enabled` config flag (darwin build tags)
@@ -597,16 +590,16 @@ The host binary requires a macOS build environment (cgo for Touch ID). Guest bin
 ### Phase 2: AWS Credentials
 
 1. Implement `internal/awsproxy/` — HTTP credential endpoint (passthrough, no guest-side caching), serving AWS SDK response format
-2. Implement `cmd/shed-aws-proxy/` — HTTP server on port 499, message bus integration, systemd-ready, startup health check, 3-second request timeout
+2. Implement `cmd/shed-ext-aws-credentials/` — HTTP server on port 499, message bus integration, systemd-ready, startup health check, 3-second request timeout
 3. Add AWS handler to `shed-host-agent` — STS AssumeRole, role mapping from config, host-side credential caching with configurable refresh window
 4. Add `extensions.yaml` configuration parsing for AWS role mappings and cache parameters
-5. Update `image/` overlay with `shed-aws-proxy` systemd unit and `AWS_CONTAINER_CREDENTIALS_FULL_URI` environment variable
+5. Update `image/` overlay with `shed-ext-aws-credentials` systemd unit and `AWS_CONTAINER_CREDENTIALS_FULL_URI` environment variable
 6. End-to-end test: AWS SDK call from inside a shed (Go and Python at minimum, Java if time permits)
 
 ### Phase 3: Polish & Demo
 
 1. Audit logging (JSON lines to `~/.local/share/shed/extensions-audit.log`)
-2. `shed-ext status` CLI for in-VM health checking (namespace connectivity, key count, role info)
+2. Extension health reporting via shed-agent (guest/host status in `shed list -vv`)
 3. Getting-started documentation
 4. Demo script for stakeholder presentations (InfoSec, ACE, engineering leadership)
 5. Security posture comparison document (before/after credential isolation)
@@ -618,7 +611,7 @@ Validate the full system in a real VZ-backed shed on macOS. No image building �
 1. Build all binaries (shed-server, guest linux/arm64, host agent)
 2. Create a test shed with `--local-dir` mounting the guest binary dist directory
 3. Install guest binaries, systemd units, and environment config inside the VM
-4. Start `shed-host-agent` on the host, verify bus connectivity with `shed-ext status`
+4. Start `shed-host-agent` on the host, verify bus connectivity with `shed list -vv`
 5. End-to-end SSH test: `ssh-add -l`, `ssh -T git@github.com`, `git clone` from inside the VM
 6. End-to-end AWS test: `curl` credential endpoint, verify STS credentials returned
 7. Verify no private keys or long-lived AWS credentials exist in the VM
@@ -630,7 +623,7 @@ Validate the full system in a real VZ-backed shed on macOS. No image building �
 Build guest binaries into a distributed experimental Docker image so developers get credential isolation out of the box — no manual setup inside the VM.
 
 1. Create a Dockerfile or image build process that layers extensions onto the base shed image
-2. Bake in: guest binaries (`shed-ssh-agent`, `shed-aws-proxy`, `shed-ext`), systemd units, environment.d config
+2. Bake in: guest binaries (`shed-ext-ssh-agent`, `shed-ext-aws-credentials`), systemd units, extension manifests, environment.d config
 3. Push to registry as an extensions-enabled image tag (e.g., `shed-base:extensions`)
 4. Update shed-server config to reference the extensions image
 5. End-to-end validation: `shed create myproject --image extensions` works with zero in-VM setup
