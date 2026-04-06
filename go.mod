@@ -5,12 +5,10 @@ go 1.24.13
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
-	github.com/charliek/shed/sdk v0.0.0
+	github.com/charliek/shed/sdk v0.1.0
 	golang.org/x/crypto v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/charliek/shed/sdk => ../shed/sdk
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect
