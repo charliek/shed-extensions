@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-shed-extensions eliminates long-lived credential material and private keys from development VMs by brokering all signing and secret resolution through the host machine. SSH private keys and AWS long-lived credentials never enter the VM — only short-lived STS session tokens (1-hour, role-scoped) cross the bus. The developer's existing key management (Secretive, 1Password, ssh-agent) works unchanged, with an added audit trail.
+shed-extensions eliminates long-lived credential material and private keys from development VMs by brokering all signing and secret resolution through the host machine. SSH private keys and AWS long-lived credentials never enter the VM — only short-lived STS session tokens (1-hour, role-scoped) cross the bus. Docker registry credentials are brokered on demand from the host's credential helpers with a configurable registry allowlist. The developer's existing key management (Secretive, 1Password, ssh-agent) works unchanged, with an added audit trail.
 
 ## Before / After Comparison
 
@@ -25,6 +25,8 @@ shed-extensions eliminates long-lived credential material and private keys from 
 | AWS long-lived credentials | No | — | Never leave the host |
 | AWS STS session tokens | Yes | Low | Short-lived (1h), role-scoped, cannot be refreshed without host agent |
 | AWS role ARN | No | — | Determined by host-side config, not VM-selectable |
+| Docker registry credentials | Yes | Medium | Tokens or passwords from host credential helpers cross the bus; lifetime depends on registry |
+| Docker config.json | No | — | Host-side config never enters the VM |
 | Touch ID biometric data | No | — | Evaluated entirely on host hardware |
 
 ## Threat Model
@@ -34,12 +36,15 @@ shed-extensions eliminates long-lived credential material and private keys from 
 An attacker with root access inside the VM can:
 - Request SSH signatures for challenge data
 - Request AWS STS session tokens for the configured role
+- Request Docker registry credentials for registries in the allowlist
 
 An attacker **cannot**:
 - Extract SSH private keys (they never enter the VM)
 - Escalate to AWS roles not configured for that shed
 - Refresh expired STS tokens without the host agent running
 - Access other sheds' credentials (bus routing is per-shed)
+- Access Docker registries not in the allowlist (host rejects)
+- Store or erase credentials on the host (Docker broker is read-only)
 
 **Mitigation**: Audit logs on the host capture every credential operation with the shed name and timestamp. STS tokens expire and become useless.
 
@@ -68,7 +73,7 @@ All credential operations are logged as JSON lines to `~/.local/share/shed/exten
 |-------|-------------|
 | `ts` | UTC timestamp |
 | `shed` | Shed instance name |
-| `ns` | Namespace (`ssh-agent` or `aws-credentials`) |
+| `ns` | Namespace (`ssh-agent`, `aws-credentials`, or `docker-credentials`) |
 | `op` | Operation performed |
 | `result` | `ok`, `denied`, or `error` |
 | `detail` | Key type, fingerprint, or role ARN |

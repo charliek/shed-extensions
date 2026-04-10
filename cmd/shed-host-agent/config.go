@@ -22,10 +22,18 @@ func userHomeDir() string {
 
 // Config is the top-level configuration for shed-host-agent.
 type Config struct {
-	Server  string    `yaml:"server"`
-	SSH     SSHConfig `yaml:"ssh"`
-	AWS     AWSConfig `yaml:"aws"`
-	Logging LogConfig `yaml:"logging"`
+	Server  string       `yaml:"server"`
+	SSH     SSHConfig    `yaml:"ssh"`
+	AWS     AWSConfig    `yaml:"aws"`
+	Docker  DockerConfig `yaml:"docker"`
+	Logging LogConfig    `yaml:"logging"`
+}
+
+// DockerConfig controls the Docker registry credential handler behavior.
+type DockerConfig struct {
+	Registries []string `yaml:"registries"`  // registry hostnames to allow
+	AllowAll   bool     `yaml:"allow_all"`   // bypass allowlist
+	ConfigPath string   `yaml:"config_path"` // override Docker config.json path
 }
 
 // AWSConfig controls the AWS credential handler behavior.

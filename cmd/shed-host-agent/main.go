@@ -92,6 +92,19 @@ func main() {
 		}()
 	}
 
+	// Start Docker handler (optional — don't fail if Docker isn't configured)
+	dockerBackend, err := NewDockerBackend(cfg.Docker, logger)
+	if err != nil {
+		logger.Warn("Docker handler disabled", "error", err)
+	} else {
+		dockerHandler := NewDockerHandler(dockerBackend, client, audit, logger)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dockerHandler.Run(ctx)
+		}()
+	}
+
 	logger.Info("subscribing to namespaces", "server", cfg.Server)
 	wg.Wait()
 
