@@ -14,7 +14,6 @@ import (
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
-// Helper translates Docker credential helper operations into message bus requests.
 type Helper struct {
 	bus *sdk.BusClient
 }

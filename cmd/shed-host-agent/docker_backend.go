@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
 // DockerBackend resolves Docker registry credentials on the host.
@@ -26,14 +28,12 @@ type DockerBackend interface {
 	Status() (allowAll bool, registryCount int)
 }
 
-// DockerCredential holds a resolved credential for a Docker registry.
 type DockerCredential struct {
 	ServerURL string
 	Username  string
 	Secret    string
 }
 
-// helperExecutor abstracts the execution of Docker credential helpers for testing.
 type helperExecutor interface {
 	execHelper(ctx context.Context, helperName, serverURL string) (*DockerCredential, error)
 }
@@ -45,7 +45,6 @@ type dockerConfig struct {
 	Auths       map[string]dockerAuthEntry `json:"auths"`
 }
 
-// dockerAuthEntry represents a single entry in the auths map.
 type dockerAuthEntry struct {
 	Auth string `json:"auth"` // base64(user:pass)
 }
@@ -114,7 +113,7 @@ func (b *dockerHelperBackend) GetCredentials(ctx context.Context, serverURL stri
 	if !b.allowAll && !b.allowed[normalized] {
 		return nil, &dockerError{
 			msg:  fmt.Sprintf("registry %q not in allowlist", serverURL),
-			code: "REGISTRY_NOT_ALLOWED",
+			code: protocol.DockerCodeNotAllowed,
 		}
 	}
 
@@ -122,12 +121,14 @@ func (b *dockerHelperBackend) GetCredentials(ctx context.Context, serverURL stri
 	if err != nil {
 		return nil, &dockerError{
 			msg:  fmt.Sprintf("reading docker config: %s", err),
-			code: "INTERNAL_ERROR",
+			code: protocol.DockerCodeInternal,
 		}
 	}
 
-	// Try credHelpers first (per-registry helper)
-	if helper, ok := cfg.CredHelpers[serverURL]; ok {
+	// Try credHelpers first (per-registry helper).
+	// Look up both raw and normalized forms since Docker config may store
+	// keys as "https://index.docker.io/v1/" while the guest sends "index.docker.io".
+	if helper, ok := lookupConfigMap(cfg.CredHelpers, serverURL, normalized); ok {
 		return b.executor.execHelper(ctx, helper, serverURL)
 	}
 
@@ -142,13 +143,13 @@ func (b *dockerHelperBackend) GetCredentials(ctx context.Context, serverURL stri
 	}
 
 	// Fall back to inline auths
-	if auth, ok := cfg.Auths[serverURL]; ok && auth.Auth != "" {
+	if auth, ok := lookupConfigMap(cfg.Auths, serverURL, normalized); ok && auth.Auth != "" {
 		return decodeInlineAuth(serverURL, auth.Auth)
 	}
 
 	return nil, &dockerError{
 		msg:  fmt.Sprintf("no credentials found for %q", serverURL),
-		code: "CREDENTIALS_NOT_FOUND",
+		code: protocol.DockerCodeNotFound,
 	}
 }
 
@@ -225,7 +226,7 @@ func (b *dockerHelperBackend) execHelper(ctx context.Context, helperName, server
 	if err := cmd.Run(); err != nil {
 		return nil, &dockerError{
 			msg:  fmt.Sprintf("%s failed: %s (stderr: %s)", bin, err, strings.TrimSpace(stderr.String())),
-			code: "HELPER_FAILED",
+			code: protocol.DockerCodeHelperFailed,
 		}
 	}
 
@@ -237,7 +238,7 @@ func (b *dockerHelperBackend) execHelper(ctx context.Context, helperName, server
 	if err := json.Unmarshal(stdout.Bytes(), &cred); err != nil {
 		return nil, &dockerError{
 			msg:  fmt.Sprintf("parsing %s output: %s", bin, err),
-			code: "HELPER_FAILED",
+			code: protocol.DockerCodeHelperFailed,
 		}
 	}
 
@@ -278,7 +279,28 @@ func normalizeRegistry(s string) string {
 	return s
 }
 
-// decodeInlineAuth decodes a base64 user:pass string from Docker's auths map.
+// lookupConfigMap searches a Docker config map using both the raw and normalized
+// registry key, handling the mismatch between Docker's stored keys (e.g.
+// "https://index.docker.io/v1/") and the guest-provided hostname ("index.docker.io").
+func lookupConfigMap[V any](m map[string]V, raw, normalized string) (V, bool) {
+	if v, ok := m[raw]; ok {
+		return v, true
+	}
+	if raw != normalized {
+		if v, ok := m[normalized]; ok {
+			return v, true
+		}
+	}
+	// Try normalizing the map keys to match
+	for k, v := range m {
+		if normalizeRegistry(k) == normalized {
+			return v, true
+		}
+	}
+	var zero V
+	return zero, false
+}
+
 func decodeInlineAuth(serverURL, encoded string) (*DockerCredential, error) {
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
@@ -297,7 +319,6 @@ func decodeInlineAuth(serverURL, encoded string) (*DockerCredential, error) {
 	}, nil
 }
 
-// dockerError is a typed error carrying an error code for protocol responses.
 type dockerError struct {
 	msg  string
 	code string

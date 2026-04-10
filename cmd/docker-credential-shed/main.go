@@ -18,11 +18,12 @@ import (
 	"strings"
 	"time"
 
+	sdk "github.com/charliek/shed/sdk"
+
 	"github.com/charliek/shed-extensions/internal/dockercred"
 	"github.com/charliek/shed-extensions/internal/version"
 )
 
-const defaultPublishURL = "http://127.0.0.1:498/v1/publish"
 const requestTimeout = 5 * time.Second
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	publishURL := defaultPublishURL
+	publishURL := sdk.DefaultPublishURL
 	if v := os.Getenv("SHED_PUBLISH_URL"); v != "" {
 		publishURL = v
 	}

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
 // mockDockerBackend implements DockerBackend for handler tests.
@@ -150,8 +152,8 @@ func TestGetCredentialsAllowlist(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *dockerError, got %T", err)
 	}
-	if de.code != "REGISTRY_NOT_ALLOWED" {
-		t.Errorf("code = %q, want %q", de.code, "REGISTRY_NOT_ALLOWED")
+	if de.code != protocol.DockerCodeNotAllowed {
+		t.Errorf("code = %q, want %q", de.code, protocol.DockerCodeNotAllowed)
 	}
 }
 
@@ -304,8 +306,8 @@ func TestGetCredentialsNotFound(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *dockerError, got %T", err)
 	}
-	if de.code != "CREDENTIALS_NOT_FOUND" {
-		t.Errorf("code = %q, want %q", de.code, "CREDENTIALS_NOT_FOUND")
+	if de.code != protocol.DockerCodeNotFound {
+		t.Errorf("code = %q, want %q", de.code, protocol.DockerCodeNotFound)
 	}
 }
 

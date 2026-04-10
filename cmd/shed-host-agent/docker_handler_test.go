@@ -91,7 +91,7 @@ func TestDockerHandlerGet(t *testing.T) {
 
 func TestDockerHandlerGetError(t *testing.T) {
 	backend := &mockDockerBackend{
-		err: &dockerError{msg: "registry not allowed", code: "REGISTRY_NOT_ALLOWED"},
+		err: &dockerError{msg: "registry not allowed", code: protocol.DockerCodeNotAllowed},
 	}
 
 	respondCalled := make(chan json.RawMessage, 1)
@@ -138,8 +138,8 @@ func TestDockerHandlerGetError(t *testing.T) {
 		if err := json.Unmarshal(payload, &errResp); err != nil {
 			t.Fatalf("unmarshal error response: %v", err)
 		}
-		if errResp.Code != "REGISTRY_NOT_ALLOWED" {
-			t.Errorf("code: got %q, want %q", errResp.Code, "REGISTRY_NOT_ALLOWED")
+		if errResp.Code != protocol.DockerCodeNotAllowed {
+			t.Errorf("code: got %q, want %q", errResp.Code, protocol.DockerCodeNotAllowed)
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for error response")
