@@ -48,7 +48,41 @@ archives:
       - tar.gz
     name_template: "shed-host-agent_{{ .Os }}_{{ .Arch }}"
     files:
-      - none*
+      - src: configs/extensions.example.yaml
+        dst: .
+        strip_parent: true
+
+brews:
+  - name: shed-host-agent
+    ids:
+      - shed-host-agent
+    repository:
+      owner: charliek
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/charliek/shed-extensions"
+    description: "Host-side credential brokering agent for shed VMs"
+    license: "MIT"
+    install: |
+      bin.install "shed-host-agent"
+      (etc/"shed").mkpath
+      (etc/"shed").install "extensions.example.yaml" => "extensions.yaml" unless (etc/"shed/extensions.yaml").exist?
+    service: |
+      run [opt_bin/"shed-host-agent", "-config", etc/"shed/extensions.yaml"]
+      keep_alive true
+      log_path var/"log/shed-host-agent.log"
+      error_log_path var/"log/shed-host-agent.log"
+    caveats: |
+      The shed-host-agent config has been installed to:
+        #{HOMEBREW_PREFIX}/etc/shed/extensions.yaml
+
+      To start shed-host-agent as a background service:
+        brew services start shed-host-agent
+
+      Logs: #{var}/log/shed-host-agent.log
+    test: |
+      assert_predicate bin/"shed-host-agent", :executable?
 
 checksum:
   name_template: "checksums.txt"
