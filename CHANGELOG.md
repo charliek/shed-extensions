@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.1
+
+### Features
+
+- Add Docker registry credential helper extension (`docker-credentials` namespace)
+- Guest binary `docker-credential-shed` brokers Docker registry credentials from host to VM
+- Host backend reads `~/.docker/config.json` and shells out to credential helpers (gcloud, osxkeychain, ecr-login, etc.)
+- Configurable registry allowlist with `allow_all` option
+- Read-only broker — store and erase operations are rejected
+- Audit logging for all Docker credential operations
+
 ## v0.2.0
 
 ### Features
