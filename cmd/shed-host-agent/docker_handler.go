@@ -85,8 +85,9 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 		if de, ok := err.(*dockerError); ok {
 			code = de.code
 		}
-		h.sendError(ctx, env, err.Error(), code)
-		h.audit.Log(shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "error", err.Error(), "none")
+		// Send a generic message to the guest; the full error is logged host-side above
+		h.sendError(ctx, env, "credential request failed", code)
+		h.audit.Log(shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "error", req.ServerURL, "none")
 		return
 	}
 
@@ -111,6 +112,7 @@ func (h *DockerHandler) handleList(ctx context.Context, env *sdk.Envelope, shedN
 
 	resp := protocol.DockerListResponse{Registries: registries}
 	h.sendResponse(ctx, env, resp)
+	h.audit.Log(shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpList, "ok", fmt.Sprintf("count:%d", len(registries)), "none")
 	h.logger.Debug("list", "shed", shedName, "count", len(registries))
 }
 
