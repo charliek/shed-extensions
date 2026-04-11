@@ -2,7 +2,7 @@
 
 Secure credential brokering for [shed](https://github.com/charliek/shed) microVM development environments.
 
-Credentials never enter the VM — all signing and secret resolution happens on the host, mediated by shed's plugin message bus. Standard tools (`git push`, AWS SDKs, `ssh`) work without changes inside the VM.
+Credentials never enter the VM — all signing and secret resolution happens on the host, mediated by shed's plugin message bus. Standard tools (`git push`, AWS SDKs, `ssh`, `docker pull`) work without changes inside the VM.
 
 ## How It Works
 
@@ -10,8 +10,9 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 ┌─────────────────────────────────┐
 │  shed microVM (Linux guest)     │
 │                                 │
-│  SSH client ──▶ shed-ext-ssh-agent  │
+│  SSH client ──▶ shed-ext-ssh-agent        │
 │  AWS SDK   ──▶ shed-ext-aws-credentials  │
+│  Docker    ──▶ docker-credential-shed    │
 │                    │            │
 │              POST /v1/publish   │
 │                    │            │
@@ -26,10 +27,11 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 ┌────────────────────┼────────────┐
 │  Host (macOS)      ▼            │
 │  shed-host-agent                │
-│    ├── SSH keys / agent         │
-│    ├── AWS STS AssumeRole       │
-│    ├── Touch ID gate (optional) │
-│    └── Audit log                │
+│    ├── SSH keys / agent             │
+│    ├── AWS STS AssumeRole           │
+│    ├── Docker credential helpers    │
+│    ├── Touch ID gate (optional)     │
+│    └── Audit log                    │
 └─────────────────────────────────┘
 ```
 
@@ -39,6 +41,7 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 |-----------|--------|-------------|
 | `ssh-agent` | Implemented | SSH key operations for git, SCP, remote access |
 | `aws-credentials` | Implemented | AWS SDK credential vending via STS role assumption |
+| `docker-credentials` | Implemented | Docker registry credential brokering for container pulls |
 
 ## Quick Start
 
@@ -58,6 +61,11 @@ Credentials never enter the VM — all signing and secret resolution happens on 
     aws:
       source_profile: default
       default_role: arn:aws:iam::123456789012:role/your-dev-role
+
+    docker:
+      registries:
+        - us-docker.pkg.dev
+        - ghcr.io
 
     logging:
       enabled: true
@@ -85,6 +93,9 @@ ssh -T git@github.com
 # AWS — get temporary credentials via STS
 aws sts get-caller-identity
 
+# Docker — pull from private registry
+docker pull us-docker.pkg.dev/your-project/your-repo/image:tag
+
 # Check extension health (from host)
 shed list -vv
 ```
@@ -94,6 +105,7 @@ shed list -vv
 - SSH private keys never enter the VM — only signatures cross the bus
 - AWS long-lived credentials never leave the host
 - AWS STS tokens are short-lived (1 hour) and role-scoped per shed
+- Docker registry credentials brokered on demand with configurable registry allowlist
 - Optional Touch ID approval gate for SSH sign operations
 - All credential operations logged to host-side audit log
 
@@ -121,6 +133,12 @@ aws:
       role: arn:aws:iam::123456789012:role/dev
     integration-tests:
       role: arn:aws:iam::123456789012:role/staging-readonly
+
+docker:
+  registries:
+    - us-docker.pkg.dev
+    - ghcr.io
+  # allow_all: true
 
 logging:
   enabled: true

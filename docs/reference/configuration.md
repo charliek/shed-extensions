@@ -31,6 +31,14 @@ aws:
     integration-tests:
       role: arn:aws:iam::123456789012:role/smartthings-staging-readonly
 
+docker:
+  registries:
+    - us-docker.pkg.dev
+    - ghcr.io
+    - artifactory.corp.com
+  # allow_all: true         # bypass allowlist
+  # config_path: ~/.docker/config.json  # override Docker config location
+
 # Audit logging
 logging:
   enabled: true
@@ -56,6 +64,14 @@ logging:
 | `aws.cache_refresh_before` | string | `5m` | Refresh cached credentials when less than this time remains |
 | `aws.sheds.<name>.role` | string | | Per-shed IAM role ARN override |
 
+### Docker Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `docker.registries` | []string | `[]` | Registry hostnames to allow credential brokering for |
+| `docker.allow_all` | bool | `false` | Allow credentials for any registry (bypasses allowlist) |
+| `docker.config_path` | string | (auto-detect) | Override Docker config.json path. If unset, checks `$DOCKER_CONFIG/config.json` first, then `~/.docker/config.json` |
+
 ### Logging Settings
 
 | Field | Type | Default | Description |
@@ -76,6 +92,7 @@ None. The opinionated base image configures everything:
 - `SSH_AUTH_SOCK=/run/shed-extensions/ssh-agent.sock` via `/etc/environment.d/shed-extensions.conf`
 - `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:499/credentials` via `/etc/environment.d/shed-extensions.conf`
 - `shed-ext-ssh-agent` and `shed-ext-aws-credentials` start via systemd at boot
+- `docker-credential-shed` available on PATH; `~/.docker/config.json` configured with `"credsStore": "shed"`
 
 ## CLI Flags
 
@@ -98,4 +115,12 @@ None. The opinionated base image configures everything:
 |------|---------|-------------|
 | `--port` | `499` | HTTP listen port |
 | `--publish-url` | `http://127.0.0.1:498/v1/publish` | shed-agent publish endpoint |
+
+### docker-credential-shed
+
+| Flag / Env | Default | Description |
+|------------|---------|-------------|
+| `SHED_PUBLISH_URL` | `http://127.0.0.1:498/v1/publish` | shed-agent publish endpoint (env var) |
+
+Commands: `get` (resolve credentials), `list` (list registries), `store` (rejected), `erase` (rejected), `version`.
 

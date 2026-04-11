@@ -7,14 +7,17 @@ graph TB
     subgraph "shed microVM"
         SSH[SSH client / git] --> SSA[shed-ext-ssh-agent<br/>Unix socket]
         AWS[AWS SDK] --> AWP[shed-ext-aws-credentials<br/>HTTP :499]
+        DCK[Docker CLI] --> DCS[docker-credential-shed<br/>one-shot CLI]
         SSA --> BUS[shed-agent<br/>127.0.0.1:498]
         AWP --> BUS
+        DCS --> BUS
     end
     BUS -->|vsock port 1026| SRV[shed-server<br/>Plugin message bus]
     SRV -->|SSE| HA[shed-host-agent]
     subgraph "Host macOS"
         HA --> BE[SSH Backend<br/>agent-forward / local-keys]
         HA --> STS[AWS STS<br/>AssumeRole + cache]
+        HA --> DCB[Docker Backend<br/>credential helpers + config]
         HA --> TID[Touch ID gate]
         HA --> AL[Audit log]
     end
@@ -68,19 +71,29 @@ sequenceDiagram
     Proxy-->>SDK: {AccessKeyId, SecretAccessKey, Token, Expiration}
 ```
 
+### Docker Credential Request
+
+1. Docker CLI execs `docker-credential-shed get` with the registry hostname on stdin
+2. `docker-credential-shed` translates the request into a JSON envelope and POSTs to the shed-agent publish endpoint
+3. shed-server routes the message to the `docker-credentials` namespace listener via SSE
+4. `shed-host-agent` checks the registry allowlist, reads `~/.docker/config.json`, and shells out to the appropriate credential helper (gcloud, osxkeychain, ecr-login, etc.)
+5. Response flows back to `docker-credential-shed`, which writes credentials to stdout and exits
+
 ## Package Structure
 
 ### Guest-Side
 
 - **`internal/sshagent/`** — Implements `golang.org/x/crypto/ssh/agent.Agent`. Each method marshals a request, POSTs to the publish endpoint, and unmarshals the response.
 - **`internal/awsproxy/`** — HTTP handler for the AWS container credential endpoint. Translates `GET /credentials` into message bus requests. Returns the PascalCase JSON format the AWS SDK expects.
+- **`internal/dockercred/`** — Docker credential helper bus client. Translates Docker credential helper protocol operations (`get`, `list`) into message bus requests. One-shot usage (not a daemon).
 - **`cmd/shed-ext-ssh-agent/`** — Unix socket listener. Creates a new agent instance per connection. Handles startup health check and graceful shutdown.
 - **`cmd/shed-ext-aws-credentials/`** — HTTP server on port 499. Routes `/credentials` to the proxy handler.
+- **`cmd/docker-credential-shed/`** — One-shot CLI binary. Docker execs this binary per credential operation. Reads stdin, publishes to bus, writes stdout, exits.
 
 ### Host-Side
 
 - **`internal/hostclient/`** — SSE client for shed-server's plugin API. Handles subscription, reconnection, and response delivery.
-- **`cmd/shed-host-agent/`** — Main binary. Loads config, initializes backends, subscribes to namespaces, dispatches requests to handlers. Runs SSH and AWS handlers concurrently.
+- **`cmd/shed-host-agent/`** — Main binary. Loads config, initializes backends, subscribes to namespaces, dispatches requests to handlers. Runs SSH, AWS, and Docker handlers concurrently.
 
 ### Shared
 
@@ -131,3 +144,5 @@ Both are published by the same release workflow (`.github/workflows/release.yaml
 | Host -> VM (SSH response) | Signature blob | Private keys |
 | VM -> Host (AWS request) | Operation type only | Role ARN, source credentials |
 | Host -> VM (AWS response) | Short-lived STS token (1h) | Long-lived AWS credentials |
+| VM -> Host (Docker get) | Registry hostname | Docker config.json contents |
+| Host -> VM (Docker response) | Registry credentials (tokens or passwords) | Host Docker config, other registries' credentials |

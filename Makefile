@@ -22,6 +22,8 @@ build-guest:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-ext-ssh-agent ./cmd/shed-ext-ssh-agent
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/shed-ext-aws-credentials ./cmd/shed-ext-aws-credentials
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/shed-ext-aws-credentials ./cmd/shed-ext-aws-credentials
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/linux-arm64/docker-credential-shed ./cmd/docker-credential-shed
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/linux-amd64/docker-credential-shed ./cmd/docker-credential-shed
 
 # Run all unit tests
 test:

@@ -9,6 +9,7 @@ Walkthrough for demonstrating shed-extensions credential isolation to stakeholde
 - A shed created with the extensions-enabled base image
 - SSH key configured on your Mac (any agent: Secretive, 1Password, ssh-agent)
 - AWS credentials configured in `~/.aws/credentials` with a role to assume
+- For Docker: Docker credential helpers configured on your Mac and registries in the host config allowlist
 
 ## Setup
 
@@ -37,7 +38,7 @@ shed attach my-service
 
 ### 1. Status Check
 
-Show that both credential namespaces are connected:
+Show that all credential namespaces are connected:
 
 ```bash
 shed-ext status
@@ -45,8 +46,9 @@ shed-ext status
 
 Expected output:
 ```text
-ssh-agent:       ✓ connected (agent-forward mode, 3 keys available)
-aws-credentials: ✓ connected (role: arn:aws:iam::123:role/dev, cached until 15:45 UTC)
+ssh-agent:          ✓ connected (agent-forward mode, 3 keys available)
+aws-credentials:    ✓ connected (role: arn:aws:iam::123:role/dev, cached until 15:45 UTC)
+docker-credentials: ✓ connected (allow_all: false, 2 registries)
 ```
 
 ### 2. SSH — Git Push Without Keys
@@ -99,7 +101,24 @@ Point out:
 - The credentials are temporary (1-hour STS tokens)
 - Check the audit log — you'll see a `get_credentials` entry
 
-### 4. Security Verification
+### 4. Docker — Pull Without Login
+
+Show there is no Docker login in the VM:
+
+```bash
+cat ~/.docker/config.json
+# Only shows credsStore: shed — no inline credentials
+```
+
+Now pull from a private registry:
+
+```bash
+docker pull us-docker.pkg.dev/your-project/your-repo/your-image:tag
+```
+
+Point out: no `docker login` was needed. The credential helper resolved credentials from your Mac's Docker config. Check the audit log — you'll see a `get` entry for the `docker-credentials` namespace.
+
+### 5. Security Verification
 
 Demonstrate that credential material doesn't exist in the VM:
 
@@ -117,13 +136,14 @@ env | grep -E "(AWS_SECRET|AWS_ACCESS|SSH_PRIVATE)"
 # Empty
 ```
 
-### 5. Audit Log Review
+### 6. Audit Log Review
 
 Switch to the audit log terminal. Show the JSON entries:
 
 ```json
 {"ts":"...","shed":"my-service","ns":"ssh-agent","op":"sign","result":"ok","detail":"ssh-ed25519","approval":"none"}
 {"ts":"...","shed":"my-service","ns":"aws-credentials","op":"get_credentials","result":"ok","detail":"expires:16:04","approval":"none"}
+{"ts":"...","shed":"my-service","ns":"docker-credentials","op":"get","result":"ok","detail":"us-docker.pkg.dev","approval":"none"}
 ```
 
 Point out: every credential operation is logged with the shed name, operation type, and result.

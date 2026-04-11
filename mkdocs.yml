@@ -93,6 +93,7 @@ nav:
   - Reference:
       - SSH Agent: reference/ssh-agent.md
       - AWS Credentials: reference/aws-credentials.md
+      - Docker Credentials: reference/docker-credentials.md
       - Status CLI: reference/status-cli.md
       - Configuration: reference/configuration.md
   - Security:
