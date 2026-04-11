@@ -1,0 +1,53 @@
+# Shed Host Agent Configuration
+#
+# Copy this file to one of the following locations:
+#   - ~/.config/shed/extensions.yaml
+#
+# Or specify a custom path:
+#   shed-host-agent -config /path/to/config.yaml
+
+# Shed server URL
+server: http://localhost:8080
+
+# SSH agent configuration
+ssh:
+  # Mode: "agent-forward" (forward host SSH agent) or "local-keys" (use local keys)
+  # Leave empty for auto-detection
+  mode: ""
+
+  # Biometric approval (Touch ID on macOS)
+  approval:
+    enabled: false
+    # Policy: "per-request", "per-session", or "per-shed"
+    policy: per-session
+    # How long a session approval lasts
+    session_ttl: 4h
+
+# AWS credential vending configuration
+aws:
+  # AWS profile to source credentials from
+  source_profile: default
+  # Default IAM role ARN to assume (if any)
+  default_role: ""
+  # STS session duration
+  session_duration: 1h
+  # Refresh credentials this long before expiry
+  cache_refresh_before: 5m
+  # Per-shed role overrides
+  # sheds:
+  #   my-shed-name:
+  #     role: arn:aws:iam::123456789012:role/ShedRole
+
+# Docker registry credential proxying
+docker:
+  # Allowed registry hostnames (empty = none allowed)
+  registries: []
+  # Set to true to allow all registries (bypasses allowlist)
+  allow_all: false
+  # Override Docker config.json path (default: ~/.docker/config.json)
+  # config_path: ""
+
+# Audit logging
+logging:
+  enabled: true
+  path: ~/.local/share/shed/extensions-audit.log
