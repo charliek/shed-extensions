@@ -4,9 +4,9 @@ Secure credential brokering for shed microVM development environments.
 
 ## What it does
 
-shed-extensions keeps credentials off your VMs. SSH keys never leave your Mac. AWS secrets never enter the guest. All signing and credential resolution happens on the host, mediated by shed's plugin message bus.
+shed-extensions keeps credentials off your VMs. SSH keys never leave your Mac. AWS secrets never enter the guest. Docker registry credentials are resolved on the host. All signing and credential resolution happens on the host, mediated by shed's plugin message bus.
 
-Standard tools work without changes — `git push`, AWS SDKs, `ssh` — all transparently proxied through the credential broker.
+Standard tools work without changes — `git push`, AWS SDKs, `ssh`, `docker pull` — all transparently proxied through the credential broker.
 
 ## Architecture
 
