@@ -77,6 +77,9 @@ brews:
       The shed-host-agent config has been installed to:
         #{HOMEBREW_PREFIX}/etc/shed/extensions.yaml
 
+      Update that file with your shed server URL and any credential
+      settings before starting the service.
+
       To start shed-host-agent as a background service:
         brew services start shed-host-agent
 
