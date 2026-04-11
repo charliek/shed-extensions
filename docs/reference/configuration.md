@@ -70,7 +70,7 @@ logging:
 |-------|------|---------|-------------|
 | `docker.registries` | []string | `[]` | Registry hostnames to allow credential brokering for |
 | `docker.allow_all` | bool | `false` | Allow credentials for any registry (bypasses allowlist) |
-| `docker.config_path` | string | `~/.docker/config.json` | Override Docker config.json path (also checks `$DOCKER_CONFIG`) |
+| `docker.config_path` | string | (auto-detect) | Override Docker config.json path. If unset, checks `$DOCKER_CONFIG/config.json` first, then `~/.docker/config.json` |
 
 ### Logging Settings
 

@@ -98,7 +98,7 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 
 	h.sendResponse(ctx, env, resp)
 	h.audit.Log(shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "ok", req.ServerURL, "none")
-	h.logger.Debug("credentials served", "shed", shedName, "registry", req.ServerURL, "username", cred.Username)
+	h.logger.Debug("credentials served", "shed", shedName, "registry", req.ServerURL)
 }
 
 func (h *DockerHandler) handleList(ctx context.Context, env *sdk.Envelope, shedName string) {

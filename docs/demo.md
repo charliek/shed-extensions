@@ -38,7 +38,7 @@ shed attach my-service
 
 ### 1. Status Check
 
-Show that both credential namespaces are connected:
+Show that all credential namespaces are connected:
 
 ```bash
 shed-ext status

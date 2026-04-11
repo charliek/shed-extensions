@@ -224,8 +224,11 @@ func (b *dockerHelperBackend) execHelper(ctx context.Context, helperName, server
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		// Log stderr locally for host-side diagnostics but don't propagate
+		// it to the guest — helper stderr may contain sensitive details.
+		b.logger.Debug("credential helper failed", "helper", bin, "error", err, "stderr", strings.TrimSpace(stderr.String()))
 		return nil, &dockerError{
-			msg:  fmt.Sprintf("%s failed: %s (stderr: %s)", bin, err, strings.TrimSpace(stderr.String())),
+			msg:  fmt.Sprintf("%s failed: %s", bin, err),
 			code: protocol.DockerCodeHelperFailed,
 		}
 	}
