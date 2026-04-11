@@ -85,7 +85,7 @@ brews:
 
       Logs: #{var}/log/shed-host-agent.log
     test: |
-      assert_predicate bin/"shed-host-agent", :executable?
+      system bin/"shed-host-agent", "version"
 
 checksum:
   name_template: "checksums.txt"

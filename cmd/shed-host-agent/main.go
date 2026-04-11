@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -21,6 +22,12 @@ import (
 func main() {
 	configPath := flag.String("config", "~/.config/shed/extensions.yaml", "Path to config file")
 	flag.Parse()
+
+	// Handle version subcommand
+	if flag.NArg() > 0 && flag.Arg(0) == "version" {
+		fmt.Println(version.FullInfo())
+		os.Exit(0)
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
