@@ -41,6 +41,10 @@ aws:
 # Docker registry credential proxying
 docker:
   # Allowed registry hostnames (empty = none allowed)
+  # registries:
+  #   - ghcr.io
+  #   - docker.io
+  #   - 123456789012.dkr.ecr.us-east-1.amazonaws.com
   registries: []
   # Set to true to allow all registries (bypasses allowlist)
   allow_all: false
