@@ -47,6 +47,20 @@ Credentials never enter the VM — all signing and secret resolution happens on 
 
 ### Host Setup
 
+#### Homebrew (macOS, Recommended)
+
+```bash
+brew install charliek/tap/shed-host-agent
+```
+
+This installs the binary, generates a default config at `$(brew --prefix)/etc/shed/extensions.yaml`, and sets up a launchd service. Edit the config, then start:
+
+```bash
+brew services start shed-host-agent
+```
+
+#### Manual Install
+
 1. Download the latest `shed-host-agent` from [Releases](https://github.com/charliek/shed-extensions/releases)
 
 2. Create a config file:
