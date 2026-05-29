@@ -469,6 +469,16 @@ func TestLookHelperPath(t *testing.T) {
 			t.Error("expected non-executable file to be skipped")
 		}
 	})
+
+	t.Run("directory matching the name is skipped", func(t *testing.T) {
+		dirBin := "docker-credential-faketest-dir"
+		if err := os.Mkdir(filepath.Join(dir, dirBin), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := lookHelperPath(dirBin, []string{dir}); err == nil {
+			t.Error("expected a directory candidate to be skipped")
+		}
+	})
 }
 
 func TestAugmentPATH(t *testing.T) {
@@ -514,18 +524,47 @@ func TestAugmentPATH(t *testing.T) {
 			t.Errorf("expected PATH entry containing /opt/homebrew/bin, got %v", got)
 		}
 	})
+
+	t.Run("augments the last PATH entry when duplicated", func(t *testing.T) {
+		// exec.Cmd.Env uses the last duplicate, so that one must be augmented.
+		env := []string{"PATH=/early", "HOME=/home/user", "PATH=/usr/bin"}
+		got := augmentPATH(env, []string{"/opt/homebrew/bin"})
+		dirs := filepath.SplitList(pathValue(t, got))
+		if !slices.Contains(dirs, "/opt/homebrew/bin") {
+			t.Errorf("effective PATH %v should contain /opt/homebrew/bin", dirs)
+		}
+		if !slices.Contains(dirs, "/usr/bin") {
+			t.Errorf("effective PATH %v should retain /usr/bin", dirs)
+		}
+		if got[0] != "PATH=/early" {
+			t.Errorf("first PATH entry = %q, want it left unchanged", got[0])
+		}
+	})
+
+	t.Run("empty PATH value yields only the extra dirs", func(t *testing.T) {
+		got := augmentPATH([]string{"PATH="}, []string{"/opt/homebrew/bin"})
+		// Must not produce a leading separator (an empty PATH element means
+		// "current directory", a footgun we don't want to introduce).
+		if v := pathValue(t, got); v != "/opt/homebrew/bin" {
+			t.Errorf("PATH = %q, want %q", v, "/opt/homebrew/bin")
+		}
+	})
 }
 
-// pathValue returns the value of the PATH entry in env, failing if none exists.
+// pathValue returns the effective PATH value in env — the last PATH= entry,
+// matching exec.Cmd.Env's last-key-wins semantics — failing if none exists.
 func pathValue(t *testing.T, env []string) string {
 	t.Helper()
+	val, found := "", false
 	for _, kv := range env {
 		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			return v
+			val, found = v, true
 		}
 	}
-	t.Fatal("no PATH entry found")
-	return ""
+	if !found {
+		t.Fatal("no PATH entry found")
+	}
+	return val
 }
 
 func TestExecHelperResolvesViaExtraDir(t *testing.T) {

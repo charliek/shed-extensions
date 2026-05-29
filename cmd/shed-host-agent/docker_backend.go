@@ -250,9 +250,13 @@ func (b *dockerHelperBackend) execHelper(ctx context.Context, helperName, server
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// Log stderr locally for host-side diagnostics but don't propagate
-		// it to the guest — helper stderr may contain sensitive details.
-		b.logger.Warn("credential helper failed", "helper", bin, "error", err, "stderr", strings.TrimSpace(stderr.String()))
+		// A located helper that exits non-zero is expected control flow: for
+		// credsStore, GetCredentials falls back to inline auths, so keep this at
+		// Debug to avoid noise (and to keep potentially-sensitive helper stderr
+		// out of default logs). The "not found on PATH" case above — the cause
+		// of the silent bug — is what we log loudly. Stderr is logged locally
+		// for diagnostics but never propagated to the guest.
+		b.logger.Debug("credential helper failed", "helper", bin, "error", err, "stderr", strings.TrimSpace(stderr.String()))
 		return nil, &dockerError{
 			msg:  fmt.Sprintf("%s failed: %s", bin, err),
 			code: protocol.DockerCodeHelperFailed,
@@ -306,26 +310,31 @@ func augmentPATH(env, extraDirs []string) []string {
 	out := make([]string, len(env))
 	copy(out, env)
 
+	// exec.Cmd.Env uses the last value for a duplicate key, so augment the last
+	// PATH entry if the environment happens to contain more than one.
+	last := -1
 	for i, kv := range out {
-		if !strings.HasPrefix(kv, "PATH=") {
-			continue
+		if strings.HasPrefix(kv, "PATH=") {
+			last = i
 		}
-		dirs := filepath.SplitList(kv[len("PATH="):])
-		seen := make(map[string]bool, len(dirs))
-		for _, d := range dirs {
-			seen[d] = true
-		}
-		for _, d := range extraDirs {
-			if !seen[d] {
-				dirs = append(dirs, d)
-				seen[d] = true
-			}
-		}
-		out[i] = "PATH=" + strings.Join(dirs, string(os.PathListSeparator))
-		return out
+	}
+	if last == -1 {
+		return append(out, "PATH="+strings.Join(extraDirs, string(os.PathListSeparator)))
 	}
 
-	return append(out, "PATH="+strings.Join(extraDirs, string(os.PathListSeparator)))
+	dirs := filepath.SplitList(out[last][len("PATH="):])
+	seen := make(map[string]bool, len(dirs))
+	for _, d := range dirs {
+		seen[d] = true
+	}
+	for _, d := range extraDirs {
+		if !seen[d] {
+			dirs = append(dirs, d)
+			seen[d] = true
+		}
+	}
+	out[last] = "PATH=" + strings.Join(dirs, string(os.PathListSeparator))
+	return out
 }
 
 // findDockerConfig returns the path to the Docker config.json, checking
