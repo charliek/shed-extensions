@@ -56,8 +56,17 @@ type dockerHelperBackend struct {
 	allowed    map[string]bool
 	allowAll   bool
 	executor   helperExecutor
+	helperDirs []string
 	logger     *slog.Logger
 }
+
+// extraHelperDirs are credential-helper install locations that may be absent
+// from the inherited PATH — notably when shed-host-agent is started by launchd
+// via `brew services`, which provides only a bare PATH
+// (/usr/bin:/bin:/usr/sbin:/sbin). Docker Desktop symlinks its helper into
+// /usr/local/bin; Homebrew installs into /opt/homebrew/bin (Apple Silicon) or
+// /usr/local/bin (Intel).
+var extraHelperDirs = []string{"/usr/local/bin", "/opt/homebrew/bin"}
 
 // NewDockerBackend creates a Docker backend that reads from the host's Docker
 // credential store. It returns an error only if an explicit config_path is
@@ -88,6 +97,7 @@ func NewDockerBackend(cfg DockerConfig, logger *slog.Logger) (DockerBackend, err
 		configPath: configPath,
 		allowed:    allowed,
 		allowAll:   cfg.AllowAll,
+		helperDirs: extraHelperDirs,
 		logger:     logger,
 	}
 	b.executor = b // default: real execution
@@ -216,8 +226,24 @@ func (b *dockerHelperBackend) execHelper(ctx context.Context, helperName, server
 	defer cancel()
 
 	bin := "docker-credential-" + helperName
-	cmd := exec.CommandContext(ctx, bin, "get")
+	helperPath, err := lookHelperPath(bin, b.helperDirs)
+	if err != nil {
+		// This is the most common cause of a silent "no credentials found":
+		// the helper exists but isn't on the inherited (e.g. launchd) PATH.
+		// Log loudly so it's diagnosable.
+		b.logger.Warn("credential helper not found on PATH",
+			"helper", bin, "searched", b.helperDirs, "error", err)
+		return nil, &dockerError{
+			msg:  fmt.Sprintf("%s not found: %s", bin, err),
+			code: protocol.DockerCodeHelperFailed,
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, helperPath, "get")
 	cmd.Stdin = strings.NewReader(serverURL)
+	// Augment PATH so any tools the helper itself shells out to are also found
+	// under a bare launchd PATH. Base on os.Environ() to preserve HOME etc.
+	cmd.Env = augmentPATH(os.Environ(), b.helperDirs)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -226,7 +252,7 @@ func (b *dockerHelperBackend) execHelper(ctx context.Context, helperName, server
 	if err := cmd.Run(); err != nil {
 		// Log stderr locally for host-side diagnostics but don't propagate
 		// it to the guest — helper stderr may contain sensitive details.
-		b.logger.Debug("credential helper failed", "helper", bin, "error", err, "stderr", strings.TrimSpace(stderr.String()))
+		b.logger.Warn("credential helper failed", "helper", bin, "error", err, "stderr", strings.TrimSpace(stderr.String()))
 		return nil, &dockerError{
 			msg:  fmt.Sprintf("%s failed: %s", bin, err),
 			code: protocol.DockerCodeHelperFailed,
@@ -250,6 +276,56 @@ func (b *dockerHelperBackend) execHelper(ctx context.Context, helperName, server
 		Username:  cred.Username,
 		Secret:    cred.Secret,
 	}, nil
+}
+
+// lookHelperPath resolves a credential-helper binary to an absolute path. It
+// first honors the inherited PATH via exec.LookPath, then falls back to
+// well-known install locations that may be missing from a bare launchd PATH.
+//
+// Resolving to an absolute path is required because exec.Command resolves a bare
+// binary name against the current process's PATH at construction time —
+// augmenting cmd.Env afterward does not affect that lookup.
+func lookHelperPath(bin string, extraDirs []string) (string, error) {
+	if p, err := exec.LookPath(bin); err == nil {
+		return p, nil
+	}
+	for _, dir := range extraDirs {
+		candidate := filepath.Join(dir, bin)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("%q not found on PATH or in %s", bin, strings.Join(extraDirs, ", "))
+}
+
+// augmentPATH returns a copy of env with extraDirs appended to its PATH entry
+// (skipping any already present). If env has no PATH entry, one is added. Basing
+// the result on os.Environ() at the call site preserves other variables (e.g.
+// HOME) that credential helpers rely on.
+func augmentPATH(env, extraDirs []string) []string {
+	out := make([]string, len(env))
+	copy(out, env)
+
+	for i, kv := range out {
+		if !strings.HasPrefix(kv, "PATH=") {
+			continue
+		}
+		dirs := filepath.SplitList(kv[len("PATH="):])
+		seen := make(map[string]bool, len(dirs))
+		for _, d := range dirs {
+			seen[d] = true
+		}
+		for _, d := range extraDirs {
+			if !seen[d] {
+				dirs = append(dirs, d)
+				seen[d] = true
+			}
+		}
+		out[i] = "PATH=" + strings.Join(dirs, string(os.PathListSeparator))
+		return out
+	}
+
+	return append(out, "PATH="+strings.Join(extraDirs, string(os.PathListSeparator)))
 }
 
 // findDockerConfig returns the path to the Docker config.json, checking
