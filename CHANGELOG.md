@@ -1,14 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.3.2
 
 ### Fixes
 
+- Docker credential helpers (e.g. `docker-credential-desktop`) now resolve when the host agent runs under launchd's bare PATH — notably when started via `brew services` ([#12](https://github.com/charliek/shed-extensions/issues/12)). The agent resolves helpers to an absolute path, searching `/usr/local/bin` and `/opt/homebrew/bin` in addition to the inherited PATH, and the Homebrew service now sets a sane `PATH` in its launchd plist.
 - SSH Touch ID approval now works in clamshell mode (lid closed) and on Macs without a fingerprint sensor ([#13](https://github.com/charliek/shed-extensions/issues/13)). The new `ssh.approval.method` field defaults to `biometrics-or-password` (`LAPolicyDeviceOwnerAuthentication` — Touch ID, Apple Watch, or account password); set `method: biometrics` to require Touch ID only (the previous, strict behavior).
 
 ### Changes
 
 - Audit log `approval` field now records the configured method (`biometrics-or-password` or `biometrics`) instead of the literal `touchid`. Log consumers that match on `touchid` should be updated.
+- Homebrew is now the recommended install method: the tap publishes `shed-host-agent` automatically on release, installable via `brew install charliek/tap/shed-host-agent` and runnable with `brew services` ([#8](https://github.com/charliek/shed-extensions/issues/8), [#10](https://github.com/charliek/shed-extensions/issues/10)).
 
 ## v0.3.1
 
