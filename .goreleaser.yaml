@@ -73,6 +73,10 @@ brews:
       keep_alive true
       log_path var/"log/shed-host-agent.log"
       error_log_path var/"log/shed-host-agent.log"
+      # launchd provides only a bare PATH; include the locations where Docker
+      # Desktop (/usr/local/bin) and Homebrew (/opt/homebrew/bin) install
+      # credential helpers so docker-credential-* can be resolved.
+      environment_variables PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     caveats: |
       The shed-host-agent config has been installed to:
         #{HOMEBREW_PREFIX}/etc/shed/extensions.yaml

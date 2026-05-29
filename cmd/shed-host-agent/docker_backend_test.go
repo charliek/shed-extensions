@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -428,4 +430,185 @@ func TestDockerErrorInterface(t *testing.T) {
 	// Verify it satisfies the error interface
 	var _ error = err
 	_ = fmt.Sprintf("%v", err) // should not panic
+}
+
+func TestLookHelperPath(t *testing.T) {
+	dir := t.TempDir()
+	binName := "docker-credential-faketest-look"
+	binPath := filepath.Join(dir, binName)
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("found in extra dir when off PATH", func(t *testing.T) {
+		got, err := lookHelperPath(binName, []string{dir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != binPath {
+			t.Errorf("path = %q, want %q", got, binPath)
+		}
+	})
+
+	t.Run("missing binary errors and names searched dirs", func(t *testing.T) {
+		_, err := lookHelperPath("docker-credential-does-not-exist", []string{dir})
+		if err == nil {
+			t.Fatal("expected error for missing helper")
+		}
+		if !strings.Contains(err.Error(), dir) {
+			t.Errorf("error %q should name searched dir %q", err, dir)
+		}
+	})
+
+	t.Run("non-executable file is skipped", func(t *testing.T) {
+		plain := "docker-credential-faketest-plain"
+		if err := os.WriteFile(filepath.Join(dir, plain), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := lookHelperPath(plain, []string{dir}); err == nil {
+			t.Error("expected non-executable file to be skipped")
+		}
+	})
+
+	t.Run("directory matching the name is skipped", func(t *testing.T) {
+		dirBin := "docker-credential-faketest-dir"
+		if err := os.Mkdir(filepath.Join(dir, dirBin), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := lookHelperPath(dirBin, []string{dir}); err == nil {
+			t.Error("expected a directory candidate to be skipped")
+		}
+	})
+}
+
+func TestAugmentPATH(t *testing.T) {
+	sep := string(os.PathListSeparator)
+
+	t.Run("appends missing dirs and preserves other env", func(t *testing.T) {
+		env := []string{"HOME=/home/user", "PATH=/usr/bin" + sep + "/bin"}
+		got := augmentPATH(env, []string{"/usr/local/bin", "/opt/homebrew/bin"})
+
+		if !slices.Contains(got, "HOME=/home/user") {
+			t.Error("HOME entry should be preserved")
+		}
+		pathVal := pathValue(t, got)
+		for _, want := range []string{"/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"} {
+			if !slices.Contains(filepath.SplitList(pathVal), want) {
+				t.Errorf("PATH %q missing %q", pathVal, want)
+			}
+		}
+	})
+
+	t.Run("does not duplicate dirs already present", func(t *testing.T) {
+		env := []string{"PATH=/usr/local/bin" + sep + "/usr/bin"}
+		got := augmentPATH(env, []string{"/usr/local/bin"})
+		dirs := filepath.SplitList(pathValue(t, got))
+		if n := slices.Index(dirs, "/usr/local/bin"); n < 0 {
+			t.Fatal("/usr/local/bin should be present")
+		}
+		count := 0
+		for _, d := range dirs {
+			if d == "/usr/local/bin" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("/usr/local/bin appears %d times, want 1", count)
+		}
+	})
+
+	t.Run("adds PATH entry when absent", func(t *testing.T) {
+		env := []string{"HOME=/home/user"}
+		got := augmentPATH(env, []string{"/opt/homebrew/bin"})
+		if !slices.Contains(filepath.SplitList(pathValue(t, got)), "/opt/homebrew/bin") {
+			t.Errorf("expected PATH entry containing /opt/homebrew/bin, got %v", got)
+		}
+	})
+
+	t.Run("augments the last PATH entry when duplicated", func(t *testing.T) {
+		// exec.Cmd.Env uses the last duplicate, so that one must be augmented.
+		env := []string{"PATH=/early", "HOME=/home/user", "PATH=/usr/bin"}
+		got := augmentPATH(env, []string{"/opt/homebrew/bin"})
+		dirs := filepath.SplitList(pathValue(t, got))
+		if !slices.Contains(dirs, "/opt/homebrew/bin") {
+			t.Errorf("effective PATH %v should contain /opt/homebrew/bin", dirs)
+		}
+		if !slices.Contains(dirs, "/usr/bin") {
+			t.Errorf("effective PATH %v should retain /usr/bin", dirs)
+		}
+		if got[0] != "PATH=/early" {
+			t.Errorf("first PATH entry = %q, want it left unchanged", got[0])
+		}
+	})
+
+	t.Run("empty PATH value yields only the extra dirs", func(t *testing.T) {
+		got := augmentPATH([]string{"PATH="}, []string{"/opt/homebrew/bin"})
+		// Must not produce a leading separator (an empty PATH element means
+		// "current directory", a footgun we don't want to introduce).
+		if v := pathValue(t, got); v != "/opt/homebrew/bin" {
+			t.Errorf("PATH = %q, want %q", v, "/opt/homebrew/bin")
+		}
+	})
+}
+
+// pathValue returns the effective PATH value in env — the last PATH= entry,
+// matching exec.Cmd.Env's last-key-wins semantics — failing if none exists.
+func pathValue(t *testing.T, env []string) string {
+	t.Helper()
+	val, found := "", false
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			val, found = v, true
+		}
+	}
+	if !found {
+		t.Fatal("no PATH entry found")
+	}
+	return val
+}
+
+func TestExecHelperResolvesViaExtraDir(t *testing.T) {
+	dir := t.TempDir()
+	// Fake helper: drains stdin (the serverURL) and emits a credential JSON.
+	script := "#!/bin/sh\ncat >/dev/null\n" +
+		`printf '%s' '{"ServerURL":"registry.example.com","Username":"fake-user","Secret":"fake-secret"}'` + "\n"
+	helper := filepath.Join(dir, "docker-credential-faketest")
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &dockerHelperBackend{
+		helperDirs: []string{dir}, // dir is not on PATH, so this exercises the fallback
+		logger:     slog.Default(),
+	}
+
+	cred, err := b.execHelper(context.Background(), "faketest", "registry.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cred.Username != "fake-user" {
+		t.Errorf("Username = %q, want %q", cred.Username, "fake-user")
+	}
+	if cred.Secret != "fake-secret" {
+		t.Errorf("Secret = %q, want %q", cred.Secret, "fake-secret")
+	}
+}
+
+func TestExecHelperMissingBinary(t *testing.T) {
+	b := &dockerHelperBackend{
+		helperDirs: []string{t.TempDir()}, // empty dir, binary nowhere
+		logger:     slog.Default(),
+	}
+
+	_, err := b.execHelper(context.Background(), "definitely-missing", "registry.example.com")
+	if err == nil {
+		t.Fatal("expected error for missing helper")
+	}
+	de, ok := err.(*dockerError)
+	if !ok {
+		t.Fatalf("expected *dockerError, got %T", err)
+	}
+	if de.code != protocol.DockerCodeHelperFailed {
+		t.Errorf("code = %q, want %q", de.code, protocol.DockerCodeHelperFailed)
+	}
 }
