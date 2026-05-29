@@ -51,7 +51,7 @@ func main() {
 	if approval.Enabled() {
 		logger.Info("Touch ID approval enabled",
 			"policy", cfg.SSH.Approval.Policy,
-			"method", cfg.SSH.Approval.Method)
+			"method", approval.Method())
 	}
 
 	// Initialize audit logger
