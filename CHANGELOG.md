@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- SSH Touch ID approval now works in clamshell mode (lid closed) and on Macs without a fingerprint sensor ([#13](https://github.com/charliek/shed-extensions/issues/13)). The new `ssh.approval.method` field defaults to `biometrics-or-password` (`LAPolicyDeviceOwnerAuthentication` — Touch ID, Apple Watch, or account password); set `method: biometrics` to require Touch ID only (the previous, strict behavior).
+
+### Changes
+
+- Audit log `approval` field now records the configured method (`biometrics-or-password` or `biometrics`) instead of the literal `touchid`. Log consumers that match on `touchid` should be updated.
+
 ## v0.3.1
 
 ### Features

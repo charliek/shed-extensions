@@ -77,7 +77,7 @@ All credential operations are logged as JSON lines to `~/.local/share/shed/exten
 | `op` | Operation performed |
 | `result` | `ok`, `denied`, or `error` |
 | `detail` | Key type, fingerprint, or role ARN |
-| `approval` | `touchid`, `cached`, or `none` |
+| `approval` | Configured approval method: `biometrics-or-password`, `biometrics`, or `none` (gate disabled) |
 
 ## Compliance Benefits
 

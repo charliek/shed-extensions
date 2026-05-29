@@ -258,9 +258,20 @@ The developer can override auto-detection via config if needed, but the PoC opti
 
 ### Touch ID / Biometric Approval
 
-Touch ID is available as an optional approval gate for SSH sign operations. It is disabled by default and enabled via `approval.enabled` in the host config. When enabled, the default policy is per-session with a 4-hour TTL — one Touch ID prompt approves all sign operations for the session duration. Other policies (per-request, per-shed) are configurable.
+Touch ID is available as an optional approval gate for SSH sign operations. It is disabled by default and enabled via `approval.enabled` in the host config. When enabled, the default policy is per-session with a 4-hour TTL — one prompt approves all sign operations for the session duration. Other policies (per-request, per-shed) are configurable.
+
+The `approval.method` field selects the authentication factor:
+
+| `method` | LocalAuthentication policy | Behavior |
+|----------|----------------------------|----------|
+| `biometrics-or-password` (default) | `LAPolicyDeviceOwnerAuthentication` | Touch ID, Apple Watch, or account password. Works in clamshell mode and on Macs without a fingerprint sensor. |
+| `biometrics` | `LAPolicyDeviceOwnerAuthenticationWithBiometrics` | Touch ID only. Fails when no biometric is available (e.g. lid closed, no sensor). |
+
+`biometrics-or-password` is the default so approval works out of the box on a closed-lid MacBook with an external display, on a Mac mini/Studio, and on any setup without a Touch ID Magic Keyboard — matching the familiar `sudo` + Touch ID PAM experience.
 
 The Touch ID integration uses macOS `LocalAuthentication` framework via cgo, gated behind darwin build tags. Non-macOS builds compile with a no-op stub.
+
+`LAPolicyDeviceOwnerAuthentication` has its own macOS-managed grace period — once authenticated, the OS may skip the prompt briefly on subsequent calls. This is independent of the `session_ttl` cache; both layers compose without conflict.
 
 ## Namespace: `aws-credentials`
 
@@ -446,6 +457,7 @@ ssh:
   approval:
     enabled: false
     # policy: per-session      # per-request | per-session | per-shed
+    # method: biometrics-or-password   # biometrics-or-password | biometrics
     # session_ttl: 4h
 
 aws:
