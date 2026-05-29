@@ -28,12 +28,13 @@ Tools are managed via [mise](https://mise.jdx.dev/) — run `mise install` to se
 - `cmd/shed-ext-aws-credentials/` — Guest-side AWS credential proxy (Linux): serves AWS container credential endpoint, translates to message bus requests
 - `cmd/docker-credential-shed/` — Guest-side Docker credential helper (Linux): one-shot CLI that Docker execs to resolve registry credentials via message bus
 - `internal/protocol/` — Shared envelope and payload types (JSON wire format matches shed's plugin types)
-- `internal/busclient/` — Shared guest-side publish-to-bus client (used by all guest binaries)
 - `internal/sshagent/` — SSH agent.Agent implementation that publishes to the message bus
 - `internal/awsproxy/` — AWS credential HTTP endpoint (passthrough to bus)
 - `internal/dockercred/` — Docker credential helper bus client (one-shot, used by docker-credential-shed)
-- `internal/hostclient/` — SSE client for shed-server's plugin API
+- `internal/testutil/` — Test helpers (mock message bus)
 - `internal/version/` — Build-time version information
+
+Bus access uses `github.com/charliek/shed/sdk` directly — guest binaries publish via `sdk.BusClient`, the host agent subscribes/responds via `sdk.HostClient`. There are no local `busclient`/`hostclient` packages.
 - `image/` — Base image overlay files (systemd units, environment config, extension manifests)
 - `docs/` — MkDocs documentation site
 
