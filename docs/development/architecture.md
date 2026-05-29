@@ -92,8 +92,7 @@ sequenceDiagram
 
 ### Host-Side
 
-- **`internal/hostclient/`** — SSE client for shed-server's plugin API. Handles subscription, reconnection, and response delivery.
-- **`cmd/shed-host-agent/`** — Main binary. Loads config, initializes backends, subscribes to namespaces, dispatches requests to handlers. Runs SSH, AWS, and Docker handlers concurrently.
+- **`cmd/shed-host-agent/`** — Main binary. Loads config, initializes backends, and subscribes to namespaces via the upstream `github.com/charliek/shed/sdk` host client (SSE — handles subscription, reconnection, and response delivery). Dispatches requests to handlers and runs SSH, AWS, and Docker handlers concurrently.
 
 ### Shared
 

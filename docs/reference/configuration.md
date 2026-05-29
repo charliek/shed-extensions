@@ -16,6 +16,7 @@ ssh:
   approval:
     enabled: false
     # policy: per-session     # per-request | per-session | per-shed
+    # method: biometrics-or-password   # biometrics-or-password | biometrics
     # session_ttl: 4h
 
 aws:
@@ -52,6 +53,7 @@ logging:
 | `ssh.mode` | string | `""` (auto) | SSH backend mode. Auto-detect selects agent-forward if `SSH_AUTH_SOCK` exists, falls back to local-keys. |
 | `ssh.approval.enabled` | bool | `false` | Enable Touch ID approval gate for sign operations |
 | `ssh.approval.policy` | string | `per-session` | Approval policy: `per-request`, `per-session`, `per-shed` |
+| `ssh.approval.method` | string | `biometrics-or-password` | Auth method: `biometrics-or-password` (Touch ID, Apple Watch, or account password — works in clamshell mode and on Macs without a sensor) or `biometrics` (Touch ID only) |
 | `ssh.approval.session_ttl` | string | `4h` | How long a session approval remains valid |
 
 ### AWS Settings

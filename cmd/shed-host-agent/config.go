@@ -60,7 +60,16 @@ type SSHConfig struct {
 type ApprovalConfig struct {
 	Enabled    bool   `yaml:"enabled"`
 	Policy     string `yaml:"policy"`      // "per-request", "per-session", "per-shed"
+	Method     string `yaml:"method"`      // "biometrics-or-password" (default), "biometrics"
 	SessionTTL string `yaml:"session_ttl"` // e.g., "4h"
+}
+
+// resolveAllowPassword maps the approval method to whether LocalAuthentication
+// may fall back to Apple Watch / account password (LAPolicyDeviceOwnerAuthentication).
+// Empty and unknown values default to true so approval works in clamshell mode and
+// on Macs without a biometric sensor. Only "biometrics" disables the fallback.
+func resolveAllowPassword(method string) bool {
+	return method != "biometrics"
 }
 
 // LogConfig controls audit logging.
@@ -77,6 +86,7 @@ func DefaultConfig() Config {
 		SSH: SSHConfig{
 			Approval: ApprovalConfig{
 				Policy:     "per-session",
+				Method:     "biometrics-or-password",
 				SessionTTL: "4h",
 			},
 		},

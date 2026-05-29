@@ -8,19 +8,23 @@ package main
 #include <LocalAuthentication/LocalAuthentication.h>
 #include <dispatch/dispatch.h>
 
-static int authenticate(const char *reason) {
+static int authenticate(const char *reason, int allowPassword) {
     __block int result = 0;
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
 
     LAContext *context = [[LAContext alloc] init];
     NSError *error = nil;
 
-    if (![context canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error]) {
+    LAPolicy policy = allowPassword
+        ? LAPolicyDeviceOwnerAuthentication
+        : LAPolicyDeviceOwnerAuthenticationWithBiometrics;
+
+    if (![context canEvaluatePolicy:policy error:&error]) {
         return -1;
     }
 
     NSString *nsReason = [NSString stringWithUTF8String:reason];
-    [context evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics
+    [context evaluatePolicy:policy
             localizedReason:nsReason
                       reply:^(BOOL success, NSError *authError) {
         result = success ? 1 : 0;
@@ -42,9 +46,10 @@ import (
 
 // touchIDGate implements ApprovalGate using macOS Touch ID.
 type touchIDGate struct {
-	enabled    bool
-	policy     string
-	sessionTTL time.Duration
+	enabled       bool
+	policy        string
+	allowPassword bool
+	sessionTTL    time.Duration
 
 	mu            sync.Mutex
 	lastApproval  time.Time
@@ -64,12 +69,21 @@ func newApprovalGate(cfg ApprovalConfig) ApprovalGate {
 	return &touchIDGate{
 		enabled:       true,
 		policy:        cfg.Policy,
+		allowPassword: resolveAllowPassword(cfg.Method),
 		sessionTTL:    ttl,
 		shedApprovals: make(map[string]time.Time),
 	}
 }
 
 func (g *touchIDGate) Enabled() bool { return g.enabled }
+
+// Method returns the configured approval method for audit logging.
+func (g *touchIDGate) Method() string {
+	if g.allowPassword {
+		return "biometrics-or-password"
+	}
+	return "biometrics"
+}
 
 func (g *touchIDGate) Approve(shedName, reason string) error {
 	g.mu.Lock()
@@ -93,7 +107,12 @@ func (g *touchIDGate) Approve(shedName, reason string) error {
 	prompt := fmt.Sprintf("shed-extensions: %s (shed: %s)", reason, shedName)
 	cPrompt := C.CString(prompt)
 	defer C.free(unsafe.Pointer(cPrompt))
-	result := C.authenticate(cPrompt)
+
+	var allowPassword C.int
+	if g.allowPassword {
+		allowPassword = 1
+	}
+	result := C.authenticate(cPrompt, allowPassword)
 
 	switch result {
 	case 1:

@@ -58,7 +58,7 @@ The vsock transport between the VM and host kernel is point-to-point. There is n
 
 ### Replay Attacks
 
-Each message bus request carries a unique UUIDv7 ID with a timestamp component. The host handler can reject duplicate IDs within a time window.
+shed-extensions does not deduplicate request IDs; each request is processed as it arrives. This adds little exposure in practice. The vsock channel is point-to-point with no network path for an outside party to capture and replay traffic (see Bus Interception). And a compromised VM gains nothing from replaying a request — it is already authorized to issue fresh sign and credential requests directly, which is covered under Compromised VM.
 
 ## Audit Trail
 
@@ -77,7 +77,7 @@ All credential operations are logged as JSON lines to `~/.local/share/shed/exten
 | `op` | Operation performed |
 | `result` | `ok`, `denied`, or `error` |
 | `detail` | Key type, fingerprint, or role ARN |
-| `approval` | `touchid`, `cached`, or `none` |
+| `approval` | Configured approval method: `biometrics-or-password`, `biometrics`, or `none` (gate disabled) |
 
 ## Compliance Benefits
 
@@ -91,5 +91,5 @@ All credential operations are logged as JSON lines to `~/.local/share/shed/exten
 
 - **Host machine compromise**: If the developer's Mac is compromised, the attacker has equivalent access to credentials. This is unchanged from the current model.
 - **STS token window**: A compromised VM has a 1-hour window to use stolen STS tokens after the host agent stops. Tokens cannot be revoked early (AWS limitation).
-- **Signature abuse**: A compromised VM can request arbitrary SSH signatures. Rate limiting and Touch ID approval gates mitigate this.
+- **Signature abuse**: A compromised VM can request arbitrary SSH signatures while the host agent is running. The optional Touch ID approval gate (`ssh.approval`) mitigates this by requiring per-request, per-session, or per-shed authorization; shed-extensions does not currently rate-limit sign requests.
 - **No mTLS on bus**: The vsock transport does not use TLS. This is acceptable because vsock is a host-kernel-to-VM channel with no network exposure.

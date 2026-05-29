@@ -113,10 +113,10 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 		if err := h.approval.Approve(shedName, "SSH sign request"); err != nil {
 			h.logger.Info("sign denied by approval gate", "shed", shedName, "error", err)
 			h.sendError(ctx, env, "approval denied", protocol.SSHCodeSignFailed)
-			h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "denied", "", "touchid")
+			h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "denied", "", h.approval.Method())
 			return
 		}
-		approvalResult = "touchid"
+		approvalResult = h.approval.Method()
 	}
 
 	// Decode the public key

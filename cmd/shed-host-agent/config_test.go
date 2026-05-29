@@ -17,6 +17,7 @@ ssh:
   approval:
     enabled: true
     policy: per-request
+    method: biometrics
     session_ttl: 2h
 logging:
   enabled: true
@@ -42,6 +43,9 @@ logging:
 	}
 	if cfg.SSH.Approval.Policy != "per-request" {
 		t.Errorf("ssh.approval.policy: got %q, want %q", cfg.SSH.Approval.Policy, "per-request")
+	}
+	if cfg.SSH.Approval.Method != "biometrics" {
+		t.Errorf("ssh.approval.method: got %q, want %q", cfg.SSH.Approval.Method, "biometrics")
 	}
 	if cfg.SSH.Approval.SessionTTL != "2h" {
 		t.Errorf("ssh.approval.session_ttl: got %q, want %q", cfg.SSH.Approval.SessionTTL, "2h")
@@ -120,6 +124,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.SSH.Approval.Policy != "per-session" {
 		t.Errorf("ssh.approval.policy default: got %q, want %q", cfg.SSH.Approval.Policy, "per-session")
 	}
+	if cfg.SSH.Approval.Method != "biometrics-or-password" {
+		t.Errorf("ssh.approval.method default: got %q, want %q", cfg.SSH.Approval.Method, "biometrics-or-password")
+	}
 	if cfg.Logging.Enabled != true {
 		t.Error("logging.enabled default: got false, want true")
 	}
@@ -153,5 +160,55 @@ func TestLoadConfigInvalid(t *testing.T) {
 	_, err := LoadConfig(cfgPath)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestLoadConfigApprovalEnabledNoMethod(t *testing.T) {
+	// Backward-compat regression: an existing config that enables approval but
+	// omits `method` must inherit the biometrics-or-password default (the fix
+	// for clamshell/sensorless Macs) rather than an empty string.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	content := `
+ssh:
+  approval:
+    enabled: true
+    policy: per-session
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if !cfg.SSH.Approval.Enabled {
+		t.Error("ssh.approval.enabled: got false, want true")
+	}
+	if cfg.SSH.Approval.Method != "biometrics-or-password" {
+		t.Errorf("ssh.approval.method: got %q, want %q", cfg.SSH.Approval.Method, "biometrics-or-password")
+	}
+}
+
+func TestResolveAllowPassword(t *testing.T) {
+	tests := []struct {
+		method string
+		want   bool
+	}{
+		{"biometrics", false},
+		{"biometrics-or-password", true},
+		{"", true},
+		{"BIOMETRICS", true}, // case-sensitive: only exact "biometrics" is strict
+		{"garbage", true},    // unknown values fall back to the permissive default
+	}
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			if got := resolveAllowPassword(tt.method); got != tt.want {
+				t.Errorf("resolveAllowPassword(%q) = %v, want %v", tt.method, got, tt.want)
+			}
+		})
 	}
 }

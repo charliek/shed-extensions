@@ -20,6 +20,11 @@ ssh:
     enabled: false
     # Policy: "per-request", "per-session", or "per-shed"
     policy: per-session
+    # Authentication method:
+    #   biometrics-or-password (default) — Touch ID, Apple Watch, or account
+    #     password; works in clamshell mode and on Macs without a sensor
+    #   biometrics — Touch ID only; fails when no biometric is available
+    method: biometrics-or-password
     # How long a session approval lasts
     session_ttl: 4h
 

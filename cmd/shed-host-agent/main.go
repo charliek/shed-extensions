@@ -49,7 +49,9 @@ func main() {
 	// Initialize approval gate (Touch ID on macOS, no-op elsewhere)
 	approval := newApprovalGate(cfg.SSH.Approval)
 	if approval.Enabled() {
-		logger.Info("Touch ID approval enabled", "policy", cfg.SSH.Approval.Policy)
+		logger.Info("Touch ID approval enabled",
+			"policy", cfg.SSH.Approval.Policy,
+			"method", approval.Method())
 	}
 
 	// Initialize audit logger
