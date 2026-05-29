@@ -163,6 +163,36 @@ func TestLoadConfigInvalid(t *testing.T) {
 	}
 }
 
+func TestLoadConfigApprovalEnabledNoMethod(t *testing.T) {
+	// Backward-compat regression: an existing config that enables approval but
+	// omits `method` must inherit the biometrics-or-password default (the fix
+	// for clamshell/sensorless Macs) rather than an empty string.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	content := `
+ssh:
+  approval:
+    enabled: true
+    policy: per-session
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if !cfg.SSH.Approval.Enabled {
+		t.Error("ssh.approval.enabled: got false, want true")
+	}
+	if cfg.SSH.Approval.Method != "biometrics-or-password" {
+		t.Errorf("ssh.approval.method: got %q, want %q", cfg.SSH.Approval.Method, "biometrics-or-password")
+	}
+}
+
 func TestResolveAllowPassword(t *testing.T) {
 	tests := []struct {
 		method string

@@ -518,7 +518,7 @@ All credential operations are logged as JSON lines to the host filesystem:
 {"ts":"2026-03-31T15:04:06Z","shed":"my-service","ns":"aws-credentials","op":"get_credentials","result":"ok","detail":"arn:aws:iam::123:role/dev","approval":"none"}
 ```
 
-Fields: `ts` (timestamp), `shed` (shed name), `ns` (namespace), `op` (operation), `result` (ok/denied/error), `detail` (key fingerprint or role ARN), `approval` (touchid/none/cached).
+Fields: `ts` (timestamp), `shed` (shed name), `ns` (namespace), `op` (operation), `result` (ok/denied/error), `detail` (key fingerprint or role ARN), `approval` (configured method: `biometrics-or-password`, `biometrics`, or `none` when the gate is disabled).
 
 ## Project Structure
 
