@@ -160,8 +160,11 @@ func TestDesktopLastWriterWins(t *testing.T) {
 	// Second consumer supersedes the first.
 	c2, r2 := dialHello(t, sock)
 	defer c2.Close()
-	// c1 should receive a superseded hello_ack (accepted:false).
-	_ = r1
+	// c1 must receive a superseded hello_ack (accepted:false).
+	ack := readType(t, r1, "hello_ack")
+	if accepted, _ := ack["accepted"].(bool); accepted {
+		t.Fatalf("first consumer should be superseded, got ack=%v", ack)
+	}
 
 	done := make(chan error, 1)
 	go func() { g := &desktopGate{server: s}; done <- g.Approve("stbot", "x") }()

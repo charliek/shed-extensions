@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -16,6 +17,22 @@ import (
 )
 
 const maxFrameBytes = 1 << 20 // 1 MiB per-line cap on inbound frames
+
+// removeStaleSocket removes the path only if it exists AND is a Unix socket,
+// so a misconfigured socket_path can never delete an unrelated file.
+func removeStaleSocket(path string) error {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if fi.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("path exists but is not a socket: %s", path)
+	}
+	return os.Remove(path)
+}
 
 var (
 	errNoConsumer = errors.New("no shed-desktop connected")
@@ -93,7 +110,12 @@ func (s *DesktopServer) Listen(ctx context.Context) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		s.logger.Warn("desktop: could not restrict socket dir perms", "dir", dir, "error", err)
 	}
-	_ = os.Remove(s.cfg.SocketPath) // clear a stale node from a prior run
+	// Clear a stale socket from a prior run — but only if it's actually a
+	// socket, so a misconfigured path can never delete an unrelated file.
+	if err := removeStaleSocket(s.cfg.SocketPath); err != nil {
+		s.logger.Error("desktop: refusing to bind", "path", s.cfg.SocketPath, "error", err)
+		return
+	}
 	ln, err := net.Listen("unix", s.cfg.SocketPath)
 	if err != nil {
 		s.logger.Error("desktop: failed to listen", "path", s.cfg.SocketPath, "error", err)
@@ -111,7 +133,7 @@ func (s *DesktopServer) Listen(ctx context.Context) {
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
-		_ = os.Remove(s.cfg.SocketPath)
+		_ = removeStaleSocket(s.cfg.SocketPath)
 	}()
 
 	for {
@@ -145,17 +167,20 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 	_ = conn.SetReadDeadline(time.Time{})
 
 	c := &consumerConn{conn: conn}
-	s.promote(c)
-	defer s.demote(c)
-
-	_ = c.send(helloAckMsg{
+	// Send hello_ack BEFORE promoting, so RequestApproval can't route an
+	// approval_request to this connection before the handshake completes.
+	if err := c.send(helloAckMsg{
 		V: desktopProtocolVersion, Type: "hello_ack", ID: newID(), Ts: nowRFC3339(),
 		Agent:            agentInfo{Version: s.agentVersion, ApprovalMethod: "shed-desktop"},
 		Namespaces:       []string{protocol.NamespaceSSHAgent, protocol.NamespaceAWSCredentials, protocol.NamespaceDockerCredentials},
 		GateNamespaces:   []string{protocol.NamespaceSSHAgent},
 		RequestTimeoutMS: int(s.timeout / time.Millisecond),
 		Accepted:         true,
-	})
+	}); err != nil {
+		return
+	}
+	s.promote(c)
+	defer s.demote(c)
 	s.replay(c, hello.ReplayEvents)
 
 	pingDone := make(chan struct{})
