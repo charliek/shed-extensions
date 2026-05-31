@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.3.3
+
+### Release process
+
+- **Adopt the `cc-plugins:release-workflows` convention.** The release
+  pipeline now mints a `charliek-release-bot` GitHub App token at
+  workflow time (scoped to `charliek/homebrew-tap` with
+  `permission-contents: write`) and feeds it to GoReleaser via the
+  existing `HOMEBREW_TAP_TOKEN` env var, instead of consuming a
+  long-lived personal access token. GoReleaser is token-source-
+  agnostic — same `brews:` config, different credential plumbing. The
+  legacy `HOMEBREW_TAP_TOKEN` PAT secret has been deleted ([#17](https://github.com/charliek/shed-extensions/pull/17)).
+- **Docker push intentionally unchanged.** The `docker` job continues
+  to use `secrets.GITHUB_TOKEN` as `${{ github.actor }}` for the
+  ghcr.io push. This is the canonical pattern for same-repo ghcr.io
+  packages and needs no App token.
+- **Branch protection ruleset on `main`** with the App + admin role in
+  `bypass_actors` (so `/release-workflows:release`'s commit-and-tag
+  push lands). Previously shed-extensions had no branch protection.
+- **`scripts/release/update-version.sh`**: a no-op for this repo
+  (version derives from the git tag at build time via GoReleaser
+  ldflags and the docker `--build-arg VERSION`), but the wrapper is
+  present so the convention's contract holds and the next maintainer
+  finds an obvious entry point.
+- **`RELEASING.md`**: per-repo release policy, secrets table,
+  break-glass recovery runbooks for both GoReleaser and Docker push
+  failures.
+- **`.github/workflows/sanity-check-app.yml`**: new manual workflow
+  that verifies the release-bot App can reach `charliek/shed-extensions`
+  + `charliek/homebrew-tap` before a release tries to push. Catches
+  App-install-on-target mistakes early. Both reach checks validated
+  before this release.
+
+No changes to `shed-host-agent` behavior.
+
 ## v0.3.2
 
 ### Fixes
