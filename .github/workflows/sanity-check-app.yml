@@ -1,0 +1,77 @@
+name: Sanity check release-bot App wiring
+
+# Manually triggerable workflow that verifies the charliek-release-bot
+# GitHub App can mint tokens scoped to each repo the release pipeline
+# pushes to. Run this BEFORE the first release after a fresh install
+# or after touching the App's installation list — a failure here is
+# 100x cheaper to diagnose than a half-completed release.
+#
+# Each block mints a scoped token, then exercises ONE real API call
+# that proves the token can reach the target repo. "App installed but
+# scope wrong" looks identical to "App not installed" until you
+# actually try to use the token, so verifying scope here saves a
+# release-time surprise.
+#
+# Run: Actions → "Sanity check release-bot App wiring" → Run workflow.
+
+on:
+  workflow_dispatch: {}
+
+permissions: {}  # everything comes from minted tokens
+
+jobs:
+  self:
+    name: This repo (charliek/shed-extensions)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint App token for this repo
+        id: tok
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id:      ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_APP_KEY }}
+          # owner + repositories scopes to this repo only — the action
+          # defaults to "all repos the App is installed on" otherwise,
+          # which is broader than needed for a sanity check.
+          owner:        ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+      - name: Bot identity
+        env:
+          BOT_SLUG: ${{ steps.tok.outputs.app-slug }}
+        run: |
+          # Installation tokens minted by actions/create-github-app-token
+          # cannot call /user — GitHub returns 403 "Resource not
+          # accessible by integration" because they don't authenticate
+          # as a user. Use the action's app-slug output instead; the
+          # bot's login is always "<app-slug>[bot]".
+          echo "${BOT_SLUG}[bot]"
+      - name: Token can reach charliek/shed-extensions
+        env:
+          GH_TOKEN: ${{ steps.tok.outputs.token }}
+        run: |
+          # /repos/<owner>/<name> is the cheapest reach check — a 404
+          # means the token can't see the repo (App not installed or
+          # wrong scope); a 200 means the token authenticates AND has
+          # at minimum metadata:read on this repo.
+          gh api repos/charliek/shed-extensions --jq '.full_name'
+
+  homebrew_tap:
+    name: charliek/homebrew-tap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint App token for homebrew-tap
+        id: tok
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id:      ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_APP_KEY }}
+          owner:        charliek
+          repositories: homebrew-tap
+          # Match the release workflow's defense-in-depth floor — if
+          # this sanity check passes with contents:write, GoReleaser's
+          # `brews:` push (which needs the same permission) will too.
+          permission-contents: write
+      - name: Token can reach charliek/homebrew-tap
+        env:
+          GH_TOKEN: ${{ steps.tok.outputs.token }}
+        run: gh api repos/charliek/homebrew-tap --jq '.full_name'

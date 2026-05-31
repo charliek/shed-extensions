@@ -9,6 +9,12 @@ permissions:
   contents: write
   packages: write
 
+# Serialize re-runs against the same tag — better to wait than to abort
+# half-uploaded artifacts.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build and Release
@@ -37,6 +43,26 @@ jobs:
         with:
           version: v2.10.1
 
+      # Mint a release-bot App token scoped to charliek/homebrew-tap for
+      # GoReleaser's `brews:` step (formula push). The App must be
+      # installed on homebrew-tap (verify via sanity-check-app.yml).
+      # Replaces the legacy HOMEBREW_TAP_TOKEN PAT — GoReleaser is
+      # token-source-agnostic; it just uses HOMEBREW_TAP_TOKEN from the
+      # env for git authentication.
+      - name: Mint a homebrew-tap App token
+        id: tap
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id:      ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_APP_KEY }}
+          owner:        charliek
+          repositories: homebrew-tap
+          # Defense-in-depth: explicit permission floor on the minted
+          # token so a future widening of the App's installation perms
+          # doesn't silently broaden what this token can do. GoReleaser
+          # only needs contents:write on the tap repo (to push the formula).
+          permission-contents: write
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -44,7 +70,10 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # GoReleaser reads HOMEBREW_TAP_TOKEN from this env var (see
+          # .goreleaser.yaml: brews[].repository.token). Feed it the
+          # App-minted token instead of a PAT.
+          HOMEBREW_TAP_TOKEN: ${{ steps.tap.outputs.token }}
 
   docker:
     needs: release
