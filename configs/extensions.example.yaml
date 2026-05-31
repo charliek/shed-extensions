@@ -60,3 +60,14 @@ docker:
 logging:
   enabled: true
   path: ~/.local/share/shed/extensions-audit.log
+
+# shed-desktop approval delegation (disabled by default).
+# When enabled, the agent serves a local Unix-domain socket the shed-desktop
+# app connects to for the all-namespace audit/event stream and SSH approval
+# decisions. To route SSH sign approvals to the app, also set
+# ssh.approval.method: shed-desktop above.
+# See docs/reference/desktop-approval.md.
+desktop:
+  enabled: false
+  socket_path: ~/Library/Application Support/shed/host-agent.sock
+  timeout_ms: 25000
