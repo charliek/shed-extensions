@@ -285,6 +285,15 @@ func (s *DesktopServer) demote(c *consumerConn) {
 	}
 }
 
+// hasConsumer reports whether an app is currently the active consumer. Used
+// by tests to wait for promotion before driving an approval (promotion now
+// happens after the hello_ack write).
+func (s *DesktopServer) hasConsumer() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.consumer != nil
+}
+
 func (s *DesktopServer) resolve(requestID string, approved bool, from *consumerConn) {
 	s.mu.Lock()
 	p, ok := s.pending[requestID]

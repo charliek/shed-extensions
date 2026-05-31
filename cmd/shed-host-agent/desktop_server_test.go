@@ -36,8 +36,12 @@ func startTestServer(t *testing.T, timeoutMS int) (*DesktopServer, *AuditLogger,
 	return s, audit, cancel, sock
 }
 
-// dialHello connects, sends hello, and consumes the hello_ack.
-func dialHello(t *testing.T, sock string) (net.Conn, *bufio.Reader) {
+// dialHello connects, sends hello, consumes the hello_ack, then waits until
+// the server has promoted this connection to the active consumer. The wait
+// matters because the server now sends hello_ack BEFORE promoting, so a test
+// that drives an approval the instant dialHello returns could otherwise race
+// ahead of promotion.
+func dialHello(t *testing.T, s *DesktopServer, sock string) (net.Conn, *bufio.Reader) {
 	t.Helper()
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
@@ -47,16 +51,26 @@ func dialHello(t *testing.T, sock string) (net.Conn, *bufio.Reader) {
 		t.Fatalf("write hello: %v", err)
 	}
 	r := bufio.NewReader(conn)
-	frame := readType(t, r, "hello_ack")
+	frame := readType(t, conn, r, "hello_ack")
 	if accepted, _ := frame["accepted"].(bool); !accepted {
 		t.Fatalf("hello_ack not accepted: %v", frame)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for !s.hasConsumer() {
+		if time.Now().After(deadline) {
+			t.Fatal("server never promoted the consumer")
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 	return conn, r
 }
 
 // readType reads frames until one with the wanted type (skipping ping etc).
-func readType(t *testing.T, r *bufio.Reader, want string) map[string]any {
+// A read deadline keeps a missing frame from hanging the whole test run.
+func readType(t *testing.T, conn net.Conn, r *bufio.Reader, want string) map[string]any {
 	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
 	for {
 		line, err := r.ReadBytes('\n')
 		if err != nil {
@@ -84,7 +98,7 @@ func TestDesktopNoConsumerFailsClosed(t *testing.T) {
 func TestDesktopApprove(t *testing.T) {
 	s, _, cancel, sock := startTestServer(t, 5000)
 	defer cancel()
-	conn, r := dialHello(t, sock)
+	conn, r := dialHello(t, s, sock)
 	defer conn.Close()
 
 	done := make(chan error, 1)
@@ -93,7 +107,7 @@ func TestDesktopApprove(t *testing.T) {
 		done <- g.Approve("stbot", "ssh-ed25519")
 	}()
 
-	req := readType(t, r, "approval_request")
+	req := readType(t, conn, r, "approval_request")
 	if req["namespace"] != "ssh-agent" || req["shed"] != "stbot" {
 		t.Fatalf("unexpected request: %v", req)
 	}
@@ -106,12 +120,12 @@ func TestDesktopApprove(t *testing.T) {
 func TestDesktopDeny(t *testing.T) {
 	s, _, cancel, sock := startTestServer(t, 5000)
 	defer cancel()
-	conn, r := dialHello(t, sock)
+	conn, r := dialHello(t, s, sock)
 	defer conn.Close()
 
 	done := make(chan error, 1)
 	go func() { g := &desktopGate{server: s}; done <- g.Approve("stbot", "x") }()
-	req := readType(t, r, "approval_request")
+	req := readType(t, conn, r, "approval_request")
 	respond(t, conn, req["id"].(string), "deny")
 	if err := <-done; err == nil {
 		t.Fatal("deny should return an error")
@@ -121,12 +135,12 @@ func TestDesktopDeny(t *testing.T) {
 func TestDesktopTimeoutFailsClosed(t *testing.T) {
 	s, _, cancel, sock := startTestServer(t, 150)
 	defer cancel()
-	conn, r := dialHello(t, sock)
+	conn, r := dialHello(t, s, sock)
 	defer conn.Close()
 
 	done := make(chan error, 1)
 	go func() { g := &desktopGate{server: s}; done <- g.Approve("stbot", "x") }()
-	readType(t, r, "approval_request") // received, but we never respond
+	readType(t, conn, r, "approval_request") // received, but we never respond
 	select {
 	case err := <-done:
 		if err == nil {
@@ -140,13 +154,12 @@ func TestDesktopTimeoutFailsClosed(t *testing.T) {
 func TestDesktopAuditFanoutAllNamespaces(t *testing.T) {
 	s, audit, cancel, sock := startTestServer(t, 1000)
 	defer cancel()
-	_ = s
-	conn, r := dialHello(t, sock)
+	conn, r := dialHello(t, s, sock)
 	defer conn.Close()
 
 	// An aws event (a namespace that does NOT gate) must still reach the app.
 	audit.Log("roost-dev", "aws-credentials", "get_credentials", "ok", "role/dev", "none")
-	ev := readType(t, r, "event")
+	ev := readType(t, conn, r, "event")
 	if ev["ns"] != "aws-credentials" || ev["shed"] != "roost-dev" || ev["result"] != "ok" {
 		t.Fatalf("unexpected event: %v", ev)
 	}
@@ -155,20 +168,20 @@ func TestDesktopAuditFanoutAllNamespaces(t *testing.T) {
 func TestDesktopLastWriterWins(t *testing.T) {
 	s, _, cancel, sock := startTestServer(t, 5000)
 	defer cancel()
-	c1, r1 := dialHello(t, sock)
+	c1, r1 := dialHello(t, s, sock)
 	defer c1.Close()
 	// Second consumer supersedes the first.
-	c2, r2 := dialHello(t, sock)
+	c2, r2 := dialHello(t, s, sock)
 	defer c2.Close()
 	// c1 must receive a superseded hello_ack (accepted:false).
-	ack := readType(t, r1, "hello_ack")
+	ack := readType(t, c1, r1, "hello_ack")
 	if accepted, _ := ack["accepted"].(bool); accepted {
 		t.Fatalf("first consumer should be superseded, got ack=%v", ack)
 	}
 
 	done := make(chan error, 1)
 	go func() { g := &desktopGate{server: s}; done <- g.Approve("stbot", "x") }()
-	req := readType(t, r2, "approval_request") // goes to the active (second) consumer
+	req := readType(t, c2, r2, "approval_request") // goes to the active (second) consumer
 	respond(t, c2, req["id"].(string), "approve")
 	if err := <-done; err != nil {
 		t.Fatalf("active consumer approve should succeed, got %v", err)
