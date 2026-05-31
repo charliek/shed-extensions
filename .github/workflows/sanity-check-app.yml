@@ -37,12 +37,14 @@ jobs:
           repositories: ${{ github.event.repository.name }}
       - name: Bot identity
         env:
-          GH_TOKEN: ${{ steps.tok.outputs.token }}
+          BOT_SLUG: ${{ steps.tok.outputs.app-slug }}
         run: |
-          # /user proves the token's identity and that it authenticates.
-          # The bot's login is "<app-slug>[bot]"; print it so the run
-          # log shows the exact identity that will push.
-          gh api user --jq '.login'
+          # Installation tokens minted by actions/create-github-app-token
+          # cannot call /user — GitHub returns 403 "Resource not
+          # accessible by integration" because they don't authenticate
+          # as a user. Use the action's app-slug output instead; the
+          # bot's login is always "<app-slug>[bot]".
+          echo "${BOT_SLUG}[bot]"
       - name: Token can reach charliek/shed-extensions
         env:
           GH_TOKEN: ${{ steps.tok.outputs.token }}
