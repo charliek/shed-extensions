@@ -28,7 +28,7 @@ jobs:
         id: tok
         uses: actions/create-github-app-token@v3
         with:
-          app-id:      ${{ secrets.RELEASE_BOT_APP_ID }}
+          client-id:      ${{ secrets.RELEASE_BOT_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_BOT_APP_KEY }}
           # owner + repositories scopes to this repo only — the action
           # defaults to "all repos the App is installed on" otherwise,
@@ -63,7 +63,7 @@ jobs:
         id: tok
         uses: actions/create-github-app-token@v3
         with:
-          app-id:      ${{ secrets.RELEASE_BOT_APP_ID }}
+          client-id:      ${{ secrets.RELEASE_BOT_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_BOT_APP_KEY }}
           owner:        charliek
           repositories: homebrew-tap
