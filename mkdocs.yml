@@ -96,6 +96,7 @@ nav:
       - Docker Credentials: reference/docker-credentials.md
       - Status CLI: reference/status-cli.md
       - Configuration: reference/configuration.md
+      - shed-desktop Approval: reference/desktop-approval.md
   - Security:
       - Security Posture: security-posture.md
   - Development:

@@ -22,11 +22,23 @@ func userHomeDir() string {
 
 // Config is the top-level configuration for shed-host-agent.
 type Config struct {
-	Server  string       `yaml:"server"`
-	SSH     SSHConfig    `yaml:"ssh"`
-	AWS     AWSConfig    `yaml:"aws"`
-	Docker  DockerConfig `yaml:"docker"`
-	Logging LogConfig    `yaml:"logging"`
+	Server  string        `yaml:"server"`
+	SSH     SSHConfig     `yaml:"ssh"`
+	AWS     AWSConfig     `yaml:"aws"`
+	Docker  DockerConfig  `yaml:"docker"`
+	Logging LogConfig     `yaml:"logging"`
+	Desktop DesktopConfig `yaml:"desktop"`
+}
+
+// DesktopConfig controls the shed-desktop approval delegation channel. When
+// Enabled, the agent exposes a local Unix-domain socket that a connected
+// shed-desktop app uses to receive the all-namespace audit/event stream and
+// to answer SSH approval requests (with ssh.approval.method: shed-desktop).
+// Disabled by default — with it off, none of this code path runs.
+type DesktopConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	SocketPath string `yaml:"socket_path"`
+	TimeoutMS  int    `yaml:"timeout_ms"` // per-request approval budget; default 25000
 }
 
 // DockerConfig controls the Docker registry credential handler behavior.
@@ -99,6 +111,11 @@ func DefaultConfig() Config {
 			Enabled: true,
 			Path:    filepath.Join(home, ".local", "share", "shed", "extensions-audit.log"),
 		},
+		Desktop: DesktopConfig{
+			Enabled:    false,
+			SocketPath: filepath.Join(home, "Library", "Application Support", "shed", "host-agent.sock"),
+			TimeoutMS:  25000,
+		},
 	}
 }
 
@@ -125,6 +142,12 @@ func LoadConfig(path string) (Config, error) {
 	if strings.HasPrefix(cfg.Logging.Path, "~/") {
 		home := userHomeDir()
 		cfg.Logging.Path = filepath.Join(home, cfg.Logging.Path[2:])
+	}
+
+	// Expand ~ in desktop socket path
+	if strings.HasPrefix(cfg.Desktop.SocketPath, "~/") {
+		home := userHomeDir()
+		cfg.Desktop.SocketPath = filepath.Join(home, cfg.Desktop.SocketPath[2:])
 	}
 
 	return cfg, nil

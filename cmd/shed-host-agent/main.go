@@ -46,15 +46,7 @@ func main() {
 		sdk.WithLogger(logger),
 	)
 
-	// Initialize approval gate (Touch ID on macOS, no-op elsewhere)
-	approval := newApprovalGate(cfg.SSH.Approval)
-	if approval.Enabled() {
-		logger.Info("Touch ID approval enabled",
-			"policy", cfg.SSH.Approval.Policy,
-			"method", approval.Method())
-	}
-
-	// Initialize audit logger
+	// Initialize audit logger (also fans entries out to the desktop channel)
 	audit := NewAuditLogger(cfg.Logging, logger)
 	defer audit.Close()
 
@@ -79,6 +71,24 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
+
+	// Optional shed-desktop approval delegation channel (feature-flagged off
+	// by default). When enabled, the agent serves a local UDS the app uses
+	// for the all-namespace audit/event stream and SSH approval decisions.
+	var desktop *DesktopServer
+	if cfg.Desktop.Enabled {
+		desktop = NewDesktopServer(cfg.Desktop, audit, version.FullInfo(), logger)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			desktop.Listen(ctx)
+		}()
+		logger.Info("shed-desktop approval channel enabled", "socket", cfg.Desktop.SocketPath)
+	}
+
+	// Select the approval gate now that the desktop channel (if any) exists.
+	approval := selectApprovalGate(cfg, desktop)
+	logger.Info("approval gate", "method", approval.Method(), "enabled", approval.Enabled())
 
 	// Start SSH handler
 	sshHandler := NewSSHHandler(sshBackend, client, approval, audit, logger)

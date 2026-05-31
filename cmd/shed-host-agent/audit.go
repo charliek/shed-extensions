@@ -20,12 +20,16 @@ type AuditEntry struct {
 	Approval  string `json:"approval"`
 }
 
-// AuditLogger writes JSON lines to the audit log file.
+// AuditLogger writes JSON lines to the audit log file and fans every entry
+// out to in-process subscribers (the shed-desktop UDS server consumes this
+// to build the app's all-namespace activity feed).
 type AuditLogger struct {
 	mu      sync.Mutex
 	file    *os.File
 	encoder *json.Encoder
 	logger  *slog.Logger
+	subs    map[int]chan AuditEntry
+	nextSub int
 }
 
 // NewAuditLogger creates an audit logger. If the config disables logging or the
@@ -56,12 +60,10 @@ func NewAuditLogger(cfg LogConfig, logger *slog.Logger) *AuditLogger {
 	}
 }
 
-// Log writes an audit entry. Safe for concurrent use.
+// Log writes an audit entry. Safe for concurrent use. The entry is always
+// published to subscribers (so the desktop activity feed works even when
+// file logging is disabled); the file write is skipped when no file is open.
 func (a *AuditLogger) Log(shed, namespace, operation, result, detail, approval string) {
-	if a.file == nil {
-		return
-	}
-
 	entry := AuditEntry{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Shed:      shed,
@@ -75,8 +77,45 @@ func (a *AuditLogger) Log(shed, namespace, operation, result, detail, approval s
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if err := a.encoder.Encode(entry); err != nil {
-		a.logger.Error("failed to write audit log", "error", err)
+	if a.file != nil {
+		if err := a.encoder.Encode(entry); err != nil {
+			a.logger.Error("failed to write audit log", "error", err)
+		}
+	}
+	a.publish(entry)
+}
+
+// Subscribe returns a channel of every future audit entry plus an
+// unsubscribe func. Buffered; a slow subscriber drops entries rather than
+// stalling a credential operation (the file is the durable record).
+func (a *AuditLogger) Subscribe(buf int) (<-chan AuditEntry, func()) {
+	ch := make(chan AuditEntry, buf)
+	a.mu.Lock()
+	if a.subs == nil {
+		a.subs = make(map[int]chan AuditEntry)
+	}
+	id := a.nextSub
+	a.nextSub++
+	a.subs[id] = ch
+	a.mu.Unlock()
+	return ch, func() {
+		a.mu.Lock()
+		if c, ok := a.subs[id]; ok {
+			delete(a.subs, id)
+			close(c)
+		}
+		a.mu.Unlock()
+	}
+}
+
+// publish fans an entry out to subscribers. Caller must hold a.mu.
+// Non-blocking: a full subscriber channel drops the entry.
+func (a *AuditLogger) publish(entry AuditEntry) {
+	for _, ch := range a.subs {
+		select {
+		case ch <- entry:
+		default:
+		}
 	}
 }
 
