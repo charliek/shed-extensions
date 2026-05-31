@@ -53,7 +53,7 @@ jobs:
         id: tap
         uses: actions/create-github-app-token@v3
         with:
-          app-id:      ${{ secrets.RELEASE_BOT_APP_ID }}
+          client-id:      ${{ secrets.RELEASE_BOT_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_BOT_APP_KEY }}
           owner:        charliek
           repositories: homebrew-tap
