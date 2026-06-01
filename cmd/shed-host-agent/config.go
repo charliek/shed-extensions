@@ -90,6 +90,11 @@ func (s *ServerSelector) UnmarshalYAML(value *yaml.Node) error {
 		if err := value.Decode(&names); err != nil {
 			return err
 		}
+		// Keep an explicit empty list non-nil so it is distinguishable from an
+		// omitted selector (nil) — `servers: []` means "watch none", not "all".
+		if names == nil {
+			names = []string{}
+		}
 		s.Names = names
 		return nil
 	default:
@@ -97,10 +102,11 @@ func (s *ServerSelector) UnmarshalYAML(value *yaml.Node) error {
 	}
 }
 
-// Selected reports whether a discovered server name should be watched. The
-// zero value (no selector configured) selects every server.
+// Selected reports whether a discovered server name should be watched. An
+// omitted selector (nil Names) selects every server; an explicit empty list
+// (`servers: []`) selects none.
 func (s ServerSelector) Selected(name string) bool {
-	if s.All || len(s.Names) == 0 {
+	if s.All || s.Names == nil {
 		return true
 	}
 	for _, n := range s.Names {

@@ -19,6 +19,7 @@ func TestServerSelectorUnmarshal(t *testing.T) {
 		{"scalar all", "servers: all", true, nil},
 		{"omitted", "watch: poll", false, nil},
 		{"empty scalar", `servers: ""`, true, nil},
+		{"empty list", "servers: []", false, []string{}},
 		{"list", "servers: [mini2, mini3]", false, []string{"mini2", "mini3"}},
 		{"single name scalar", "servers: mini2", false, []string{"mini2"}},
 	}
@@ -50,6 +51,10 @@ func TestServerSelectorSelected(t *testing.T) {
 	list := ServerSelector{Names: []string{"mini2"}}
 	if !list.Selected("mini2") || list.Selected("mini3") {
 		t.Error("list selector should select only listed names")
+	}
+	emptyList := ServerSelector{Names: []string{}}
+	if emptyList.Selected("anything") {
+		t.Error("explicit empty list (servers: []) should select nothing")
 	}
 }
 
