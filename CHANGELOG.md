@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Multi-server `shed-host-agent`.** A single agent process can now broker
+  credentials for many shed servers at once, replacing the
+  one-process-per-server workaround. Add a `discovery:` block to watch servers
+  discovered from shed's CLI config (`~/.shed/config.yaml`) — all of them, or a
+  named subset (`discovery.servers: [mini2, mini3]`). New servers added with
+  `shed server add` are picked up live (via fsnotify, with `poll`/`off`
+  alternatives) without a restart. Single-server configs using `server:` are
+  unchanged.
+- **Hierarchical AWS/Docker config.** The `aws:` and `docker:` blocks gain a
+  per-server / per-shed override tree (`servers.<server>.sheds.<shed>`) layered
+  over the top-level defaults. Per-shed lookups — the AWS credential cache and
+  role resolution, the Docker allowlist, and the Touch ID `per-shed` approval
+  gate — are now keyed by `server/shed`, so identical shed names on different
+  servers no longer collide.
+- **Server-tagged audit.** Audit log entries and shed-desktop events carry a
+  `server` field (omitted in single-server mode) so the combined log
+  distinguishes activity per server.
+
 ## v0.3.3
 
 ### Release process

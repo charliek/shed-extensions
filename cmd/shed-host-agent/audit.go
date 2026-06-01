@@ -12,6 +12,10 @@ import (
 // AuditEntry is a single audit log record.
 type AuditEntry struct {
 	Timestamp string `json:"ts"`
+	// Server is the shed server the request came from. Empty (and omitted) in
+	// single-server mode so existing log consumers and historical logs are
+	// unaffected.
+	Server    string `json:"server,omitempty"`
 	Shed      string `json:"shed"`
 	Namespace string `json:"ns"`
 	Operation string `json:"op"`
@@ -63,9 +67,10 @@ func NewAuditLogger(cfg LogConfig, logger *slog.Logger) *AuditLogger {
 // Log writes an audit entry. Safe for concurrent use. The entry is always
 // published to subscribers (so the desktop activity feed works even when
 // file logging is disabled); the file write is skipped when no file is open.
-func (a *AuditLogger) Log(shed, namespace, operation, result, detail, approval string) {
+func (a *AuditLogger) Log(server, shed, namespace, operation, result, detail, approval string) {
 	entry := AuditEntry{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Server:    server,
 		Shed:      shed,
 		Namespace: namespace,
 		Operation: operation,

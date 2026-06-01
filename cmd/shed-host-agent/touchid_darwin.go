@@ -85,9 +85,14 @@ func (g *touchIDGate) Method() string {
 	return "biometrics"
 }
 
-func (g *touchIDGate) Approve(shedName, reason string) error {
+func (g *touchIDGate) Approve(server, shedName, reason string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	// Per-shed approvals are keyed by server/shed so identical shed names on
+	// different servers do not share an approval. per-session stays global
+	// (one approval covers the whole agent for the TTL).
+	shedKey := serverShedKey(server, shedName)
 
 	// Check cached approval based on policy
 	now := time.Now()
@@ -97,14 +102,14 @@ func (g *touchIDGate) Approve(shedName, reason string) error {
 			return nil
 		}
 	case "per-shed":
-		if t, ok := g.shedApprovals[shedName]; ok && now.Sub(t) < g.sessionTTL {
+		if t, ok := g.shedApprovals[shedKey]; ok && now.Sub(t) < g.sessionTTL {
 			return nil
 		}
 	case "per-request":
 		// Always prompt
 	}
 
-	prompt := fmt.Sprintf("shed-extensions: %s (shed: %s)", reason, shedName)
+	prompt := fmt.Sprintf("shed-extensions: %s (server: %s, shed: %s)", reason, server, shedName)
 	cPrompt := C.CString(prompt)
 	defer C.free(unsafe.Pointer(cPrompt))
 
@@ -117,7 +122,7 @@ func (g *touchIDGate) Approve(shedName, reason string) error {
 	switch result {
 	case 1:
 		g.lastApproval = now
-		g.shedApprovals[shedName] = now
+		g.shedApprovals[shedKey] = now
 		return nil
 	case 0:
 		return fmt.Errorf("touch ID authentication denied")

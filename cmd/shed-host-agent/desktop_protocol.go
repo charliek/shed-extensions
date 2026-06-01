@@ -63,6 +63,7 @@ type approvalRequestMsg struct {
 	Ts        string `json:"ts"`
 	Namespace string `json:"namespace"`
 	Op        string `json:"op"`
+	Server    string `json:"server,omitempty"`
 	Shed      string `json:"shed"`
 	Detail    string `json:"detail"`
 	ExpiresAt string `json:"expires_at"`
@@ -74,6 +75,7 @@ type eventMsg struct {
 	ID       string `json:"id"`
 	Ts       string `json:"ts"`
 	Kind     string `json:"kind"`
+	Server   string `json:"server,omitempty"`
 	Shed     string `json:"shed,omitempty"`
 	Ns       string `json:"ns,omitempty"`
 	Op       string `json:"op,omitempty"`

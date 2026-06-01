@@ -7,7 +7,7 @@ func TestNoopGate(t *testing.T) {
 	if g.Enabled() {
 		t.Error("noopGate.Enabled() = true, want false")
 	}
-	if err := g.Approve("shed", "reason"); err != nil {
+	if err := g.Approve("srv", "shed", "reason"); err != nil {
 		t.Errorf("noopGate.Approve() = %v, want nil", err)
 	}
 	if got := g.Method(); got != "none" {

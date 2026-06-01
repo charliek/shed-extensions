@@ -16,16 +16,21 @@ import (
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
-// DockerBackend resolves Docker registry credentials on the host.
+// DockerBackend resolves Docker registry credentials on the host. The
+// (server, shed) pair selects the effective allowlist policy from the
+// hierarchical Docker config; serverURL is the Docker registry being requested.
 type DockerBackend interface {
-	// GetCredentials returns credentials for the given registry.
-	GetCredentials(ctx context.Context, serverURL string) (*DockerCredential, error)
+	// GetCredentials returns credentials for the given registry, applying the
+	// allowlist resolved for (server, shed).
+	GetCredentials(ctx context.Context, server, shed, serverURL string) (*DockerCredential, error)
 
-	// ListCredentials returns a map of allowed registry hostnames to usernames.
-	ListCredentials(ctx context.Context) (map[string]string, error)
+	// ListCredentials returns a map of allowed registry hostnames to usernames
+	// for the policy resolved for (server, shed).
+	ListCredentials(ctx context.Context, server, shed string) (map[string]string, error)
 
-	// Status returns the allowlist mode and registry count.
-	Status() (allowAll bool, registryCount int)
+	// Status returns the allowlist mode and registry count resolved for
+	// (server, shed).
+	Status(server, shed string) (allowAll bool, registryCount int)
 }
 
 type DockerCredential struct {
@@ -50,14 +55,23 @@ type dockerAuthEntry struct {
 }
 
 // dockerHelperBackend resolves credentials by reading the host's Docker config
-// and shelling out to credential helpers.
+// and shelling out to credential helpers. The allowlist policy is resolved per
+// (server, shed) request from cfg rather than fixed at construction.
 type dockerHelperBackend struct {
 	configPath string
-	allowed    map[string]bool
-	allowAll   bool
+	cfg        DockerConfig
 	executor   helperExecutor
 	helperDirs []string
 	logger     *slog.Logger
+}
+
+// normalizeRegistrySet builds a normalized lookup set from a registries list.
+func normalizeRegistrySet(registries []string) map[string]bool {
+	allowed := make(map[string]bool, len(registries))
+	for _, r := range registries {
+		allowed[normalizeRegistry(r)] = true
+	}
+	return allowed
 }
 
 // extraHelperDirs are credential-helper install locations that may be absent
@@ -88,15 +102,9 @@ func NewDockerBackend(cfg DockerConfig, logger *slog.Logger) (DockerBackend, err
 		}
 	}
 
-	allowed := make(map[string]bool, len(cfg.Registries))
-	for _, r := range cfg.Registries {
-		allowed[normalizeRegistry(r)] = true
-	}
-
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    allowed,
-		allowAll:   cfg.AllowAll,
+		cfg:        cfg,
 		helperDirs: extraHelperDirs,
 		logger:     logger,
 	}
@@ -117,10 +125,11 @@ func NewDockerBackend(cfg DockerConfig, logger *slog.Logger) (DockerBackend, err
 	return b, nil
 }
 
-func (b *dockerHelperBackend) GetCredentials(ctx context.Context, serverURL string) (*DockerCredential, error) {
+func (b *dockerHelperBackend) GetCredentials(ctx context.Context, server, shed, serverURL string) (*DockerCredential, error) {
 	normalized := normalizeRegistry(serverURL)
 
-	if !b.allowAll && !b.allowed[normalized] {
+	resolved := b.cfg.Resolve(server, shed)
+	if !resolved.AllowAll && !normalizeRegistrySet(resolved.Registries)[normalized] {
 		return nil, &dockerError{
 			msg:  fmt.Sprintf("registry %q not in allowlist", serverURL),
 			code: protocol.DockerCodeNotAllowed,
@@ -163,24 +172,28 @@ func (b *dockerHelperBackend) GetCredentials(ctx context.Context, serverURL stri
 	}
 }
 
-func (b *dockerHelperBackend) ListCredentials(ctx context.Context) (map[string]string, error) {
+func (b *dockerHelperBackend) ListCredentials(ctx context.Context, server, shed string) (map[string]string, error) {
 	cfg, err := b.readConfig()
 	if err != nil {
 		return nil, fmt.Errorf("reading docker config: %w", err)
 	}
 
+	resolved := b.cfg.Resolve(server, shed)
+	allowAll := resolved.AllowAll
+	allowed := normalizeRegistrySet(resolved.Registries)
+
 	result := make(map[string]string)
 
 	// Collect from credHelpers
 	for serverURL := range cfg.CredHelpers {
-		if b.allowAll || b.allowed[normalizeRegistry(serverURL)] {
+		if allowAll || allowed[normalizeRegistry(serverURL)] {
 			result[serverURL] = "(credential helper)"
 		}
 	}
 
 	// Collect from inline auths
 	for serverURL, auth := range cfg.Auths {
-		if b.allowAll || b.allowed[normalizeRegistry(serverURL)] {
+		if allowAll || allowed[normalizeRegistry(serverURL)] {
 			if auth.Auth != "" {
 				cred, err := decodeInlineAuth(serverURL, auth.Auth)
 				if err == nil {
@@ -195,8 +208,9 @@ func (b *dockerHelperBackend) ListCredentials(ctx context.Context) (map[string]s
 	return result, nil
 }
 
-func (b *dockerHelperBackend) Status() (bool, int) {
-	return b.allowAll, len(b.allowed)
+func (b *dockerHelperBackend) Status(server, shed string) (bool, int) {
+	resolved := b.cfg.Resolve(server, shed)
+	return resolved.AllowAll, len(normalizeRegistrySet(resolved.Registries))
 }
 
 func (b *dockerHelperBackend) readConfig() (*dockerConfig, error) {

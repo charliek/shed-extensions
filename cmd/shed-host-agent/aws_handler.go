@@ -11,20 +11,24 @@ import (
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
-// AWSHandler processes AWS credential requests from the plugin message bus.
+// AWSHandler processes AWS credential requests from the plugin message bus for
+// a single shed server.
 type AWSHandler struct {
 	backend AWSBackend
 	client  *sdk.HostClient
 	audit   *AuditLogger
+	server  string
 	logger  *slog.Logger
 }
 
-// NewAWSHandler creates a handler for the aws-credentials namespace.
-func NewAWSHandler(backend AWSBackend, client *sdk.HostClient, audit *AuditLogger, logger *slog.Logger) *AWSHandler {
+// NewAWSHandler creates a handler for the aws-credentials namespace on the
+// named server.
+func NewAWSHandler(backend AWSBackend, client *sdk.HostClient, audit *AuditLogger, server string, logger *slog.Logger) *AWSHandler {
 	return &AWSHandler{
 		backend: backend,
 		client:  client,
 		audit:   audit,
+		server:  server,
 		logger:  logger,
 	}
 }
@@ -68,11 +72,11 @@ func (h *AWSHandler) handleMessage(ctx context.Context, env *sdk.Envelope) {
 }
 
 func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *sdk.Envelope, shedName string) {
-	creds, err := h.backend.GetCredentials(ctx, shedName)
+	creds, err := h.backend.GetCredentials(ctx, h.server, shedName)
 	if err != nil {
-		h.logger.Error("get credentials failed", "error", err, "shed", shedName)
+		h.logger.Error("get credentials failed", "error", err, "server", h.server, "shed", shedName)
 		h.sendError(ctx, env, "credential request failed", protocol.AWSCodeAssumeRoleFailed)
-		h.audit.Log(shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "error", err.Error(), "none")
+		h.audit.Log(h.server, shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "error", err.Error(), "none")
 		return
 	}
 
@@ -84,8 +88,8 @@ func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *sdk.Envelope
 	}
 
 	h.sendResponse(ctx, env, resp)
-	h.audit.Log(shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "ok", fmt.Sprintf("expires:%s", creds.Expiration.Format("15:04")), "none")
-	h.logger.Debug("credentials served", "shed", shedName, "expires", creds.Expiration)
+	h.audit.Log(h.server, shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "ok", fmt.Sprintf("expires:%s", creds.Expiration.Format("15:04")), "none")
+	h.logger.Debug("credentials served", "server", h.server, "shed", shedName, "expires", creds.Expiration)
 }
 
 func (h *AWSHandler) handlePing(ctx context.Context, env *sdk.Envelope, shedName string) {
@@ -95,7 +99,7 @@ func (h *AWSHandler) handlePing(ctx context.Context, env *sdk.Envelope, shedName
 }
 
 func (h *AWSHandler) handleStatus(ctx context.Context, env *sdk.Envelope, shedName string) {
-	role, cachedUntil := h.backend.Status(shedName)
+	role, cachedUntil := h.backend.Status(h.server, shedName)
 
 	resp := protocol.AWSStatusResponse{
 		Connected: true,

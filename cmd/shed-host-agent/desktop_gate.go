@@ -17,9 +17,9 @@ type desktopGate struct {
 func (g *desktopGate) Enabled() bool  { return true }
 func (g *desktopGate) Method() string { return "shed-desktop" }
 
-func (g *desktopGate) Approve(shedName, reason string) error {
+func (g *desktopGate) Approve(server, shedName, reason string) error {
 	approved, err := g.server.RequestApproval(
-		context.Background(), protocol.NamespaceSSHAgent, protocol.SSHOpSign, shedName, reason)
+		context.Background(), protocol.NamespaceSSHAgent, protocol.SSHOpSign, server, shedName, reason)
 	if err != nil {
 		return fmt.Errorf("shed-desktop approval: %w", err)
 	}

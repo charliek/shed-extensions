@@ -24,5 +24,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.14 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.18 // indirect
 	github.com/aws/smithy-go v1.24.2 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 )

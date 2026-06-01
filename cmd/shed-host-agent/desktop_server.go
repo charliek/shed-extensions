@@ -221,7 +221,7 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 // RequestApproval sends an approval request to the connected app and blocks on
 // the reply within the timeout. Fail-closed: returns an error (→ deny) when no
 // app is connected, on timeout, or on a transport error.
-func (s *DesktopServer) RequestApproval(ctx context.Context, namespace, op, shed, detail string) (bool, error) {
+func (s *DesktopServer) RequestApproval(ctx context.Context, namespace, op, server, shed, detail string) (bool, error) {
 	s.mu.Lock()
 	consumer := s.consumer
 	if consumer == nil {
@@ -236,7 +236,7 @@ func (s *DesktopServer) RequestApproval(ctx context.Context, namespace, op, shed
 
 	req := approvalRequestMsg{
 		V: desktopProtocolVersion, Type: "approval_request", ID: id, Ts: nowRFC3339(),
-		Namespace: namespace, Op: op, Shed: shed, Detail: detail,
+		Namespace: namespace, Op: op, Server: server, Shed: shed, Detail: detail,
 		ExpiresAt: time.Now().Add(s.timeout).UTC().Format(time.RFC3339),
 	}
 	if err := consumer.send(req); err != nil {
@@ -324,7 +324,7 @@ func (s *DesktopServer) forwardAudit(ctx context.Context, ch <-chan AuditEntry) 
 			}
 			ev := eventMsg{
 				V: desktopProtocolVersion, Type: "event", ID: newID(), Ts: entry.Timestamp,
-				Kind: "audit", Shed: entry.Shed, Ns: entry.Namespace, Op: entry.Operation,
+				Kind: "audit", Server: entry.Server, Shed: entry.Shed, Ns: entry.Namespace, Op: entry.Operation,
 				Result: entry.Result, Detail: entry.Detail, Approval: entry.Approval,
 			}
 			s.mu.Lock()

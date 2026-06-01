@@ -6,8 +6,20 @@
 # Or specify a custom path:
 #   shed-host-agent -config /path/to/config.yaml
 
-# Shed server URL
+# Shed server URL (single-server mode). Used only when the `discovery:` block
+# below is omitted.
 server: http://localhost:8080
+
+# Multi-server mode (optional). Uncommenting this block makes one agent process
+# broker credentials for many shed servers, discovered from shed's own CLI
+# config (~/.shed/config.yaml). When present, `server:` above is ignored.
+# See docs/reference/configuration.md.
+# discovery:
+#   servers: all          # "all" (default) or a list: [mini2, mini3]
+#   watch: fsnotify        # fsnotify (default) | poll | off
+#   # source: ~/.shed/config.yaml
+#   # poll_interval: 10s   # used when watch: poll
+#   # debounce: 500ms      # used when watch: fsnotify
 
 # SSH agent configuration
 ssh:
@@ -38,10 +50,17 @@ aws:
   session_duration: 1h
   # Refresh credentials this long before expiry
   cache_refresh_before: 5m
-  # Per-shed role overrides
+  # Per-shed role overrides (deprecated global form; applies on any server)
   # sheds:
   #   my-shed-name:
   #     role: arn:aws:iam::123456789012:role/ShedRole
+  # Multi-server overrides (default -> server -> shed; most specific wins)
+  # servers:
+  #   mini2:
+  #     default_role: arn:aws:iam::123456789012:role/Mini2
+  #     sheds:
+  #       web:
+  #         role: arn:aws:iam::123456789012:role/Web
 
 # Docker registry credential proxying
 docker:
@@ -55,6 +74,15 @@ docker:
   allow_all: false
   # Override Docker config.json path (default: ~/.docker/config.json)
   # config_path: ""
+  # Multi-server overrides (default -> server -> shed; most specific wins).
+  # A registries list replaces (not merges) the inherited list.
+  # servers:
+  #   mini2:
+  #     allow_all: true
+  #     sheds:
+  #       web:
+  #         registries:
+  #           - ghcr.io
 
 # Audit logging
 logging:

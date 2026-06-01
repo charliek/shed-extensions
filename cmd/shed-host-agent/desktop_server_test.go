@@ -90,7 +90,7 @@ func TestDesktopNoConsumerFailsClosed(t *testing.T) {
 	s, _, cancel, _ := startTestServer(t, 1000)
 	defer cancel()
 	g := &desktopGate{server: s}
-	if err := g.Approve("stbot", "ssh-ed25519"); err == nil {
+	if err := g.Approve("srv", "stbot", "ssh-ed25519"); err == nil {
 		t.Fatal("expected deny (error) with no consumer connected")
 	}
 }
@@ -104,7 +104,7 @@ func TestDesktopApprove(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		g := &desktopGate{server: s}
-		done <- g.Approve("stbot", "ssh-ed25519")
+		done <- g.Approve("srv", "stbot", "ssh-ed25519")
 	}()
 
 	req := readType(t, conn, r, "approval_request")
@@ -124,7 +124,7 @@ func TestDesktopDeny(t *testing.T) {
 	defer conn.Close()
 
 	done := make(chan error, 1)
-	go func() { g := &desktopGate{server: s}; done <- g.Approve("stbot", "x") }()
+	go func() { g := &desktopGate{server: s}; done <- g.Approve("srv", "stbot", "x") }()
 	req := readType(t, conn, r, "approval_request")
 	respond(t, conn, req["id"].(string), "deny")
 	if err := <-done; err == nil {
@@ -139,7 +139,7 @@ func TestDesktopTimeoutFailsClosed(t *testing.T) {
 	defer conn.Close()
 
 	done := make(chan error, 1)
-	go func() { g := &desktopGate{server: s}; done <- g.Approve("stbot", "x") }()
+	go func() { g := &desktopGate{server: s}; done <- g.Approve("srv", "stbot", "x") }()
 	readType(t, conn, r, "approval_request") // received, but we never respond
 	select {
 	case err := <-done:
@@ -158,9 +158,9 @@ func TestDesktopAuditFanoutAllNamespaces(t *testing.T) {
 	defer conn.Close()
 
 	// An aws event (a namespace that does NOT gate) must still reach the app.
-	audit.Log("roost-dev", "aws-credentials", "get_credentials", "ok", "role/dev", "none")
+	audit.Log("mini2", "roost-dev", "aws-credentials", "get_credentials", "ok", "role/dev", "none")
 	ev := readType(t, conn, r, "event")
-	if ev["ns"] != "aws-credentials" || ev["shed"] != "roost-dev" || ev["result"] != "ok" {
+	if ev["ns"] != "aws-credentials" || ev["server"] != "mini2" || ev["shed"] != "roost-dev" || ev["result"] != "ok" {
 		t.Fatalf("unexpected event: %v", ev)
 	}
 }
@@ -180,7 +180,7 @@ func TestDesktopLastWriterWins(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { g := &desktopGate{server: s}; done <- g.Approve("stbot", "x") }()
+	go func() { g := &desktopGate{server: s}; done <- g.Approve("srv", "stbot", "x") }()
 	req := readType(t, c2, r2, "approval_request") // goes to the active (second) consumer
 	respond(t, c2, req["id"].(string), "approve")
 	if err := <-done; err != nil {
@@ -214,7 +214,7 @@ func TestSelectApprovalGateMisconfigDenies(t *testing.T) {
 	cfg.SSH.Approval.Method = "shed-desktop"
 	// desktop.enabled false → desktop server nil → fail-closed deny gate.
 	g := selectApprovalGate(cfg, nil)
-	if err := g.Approve("stbot", "x"); err == nil {
+	if err := g.Approve("srv", "stbot", "x"); err == nil {
 		t.Fatal("misconfigured shed-desktop method should deny")
 	}
 }
