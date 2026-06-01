@@ -16,7 +16,7 @@ func TestAuditLoggerWritesJSON(t *testing.T) {
 	logger := NewAuditLogger(LogConfig{Enabled: true, Path: logPath}, slog.Default())
 	defer logger.Close()
 
-	logger.Log("my-shed", "ssh-agent", "sign", "ok", "ssh-ed25519", "none")
+	logger.Log("mini2", "my-shed", "ssh-agent", "sign", "ok", "ssh-ed25519", "none")
 
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -28,6 +28,9 @@ func TestAuditLoggerWritesJSON(t *testing.T) {
 		t.Fatalf("parse log entry: %v", err)
 	}
 
+	if entry.Server != "mini2" {
+		t.Errorf("server: got %q, want %q", entry.Server, "mini2")
+	}
 	if entry.Shed != "my-shed" {
 		t.Errorf("shed: got %q, want %q", entry.Shed, "my-shed")
 	}
@@ -53,7 +56,7 @@ func TestAuditLoggerDisabled(t *testing.T) {
 	defer logger.Close()
 
 	// Should not panic or error
-	logger.Log("shed", "ns", "op", "ok", "", "none")
+	logger.Log("srv", "shed", "ns", "op", "ok", "", "none")
 }
 
 func TestAuditLoggerConcurrent(t *testing.T) {
@@ -68,7 +71,7 @@ func TestAuditLoggerConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			logger.Log("shed", "ns", "op", "ok", "", "none")
+			logger.Log("srv", "shed", "ns", "op", "ok", "", "none")
 		}()
 	}
 	wg.Wait()
@@ -97,7 +100,7 @@ func TestAuditLoggerFilePermissions(t *testing.T) {
 	logger := NewAuditLogger(LogConfig{Enabled: true, Path: logPath}, slog.Default())
 	defer logger.Close()
 
-	logger.Log("shed", "ns", "op", "ok", "", "none")
+	logger.Log("srv", "shed", "ns", "op", "ok", "", "none")
 
 	// Check directory permissions
 	dirInfo, err := os.Stat(filepath.Dir(logPath))

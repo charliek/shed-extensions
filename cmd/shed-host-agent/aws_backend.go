@@ -13,11 +13,13 @@ import (
 
 // AWSBackend performs AWS credential operations on the host.
 type AWSBackend interface {
-	// GetCredentials returns temporary AWS credentials for the given shed.
-	GetCredentials(ctx context.Context, shedName string) (*AWSCachedCredentials, error)
+	// GetCredentials returns temporary AWS credentials for the given shed on
+	// the given server.
+	GetCredentials(ctx context.Context, server, shedName string) (*AWSCachedCredentials, error)
 
-	// Status returns the role and cache expiration for the given shed.
-	Status(shedName string) (role string, cachedUntil *time.Time)
+	// Status returns the role and cache expiration for the given shed on the
+	// given server.
+	Status(server, shedName string) (role string, cachedUntil *time.Time)
 }
 
 // AWSCachedCredentials holds a cached set of STS temporary credentials.
@@ -42,8 +44,8 @@ type stsBackend struct {
 
 // NewSTSBackend creates an AWS backend that assumes roles via STS.
 func NewSTSBackend(ctx context.Context, cfg AWSConfig, logger *slog.Logger) (AWSBackend, error) {
-	if cfg.DefaultRole == "" && len(cfg.Sheds) == 0 {
-		return nil, fmt.Errorf("no AWS role configured (set aws.default_role or aws.sheds)")
+	if !cfg.HasAnyRole() {
+		return nil, fmt.Errorf("no AWS role configured (set aws.default_role, aws.sheds, or aws.servers)")
 	}
 
 	awsCfg, err := config.LoadDefaultConfig(ctx,
@@ -82,26 +84,32 @@ func NewSTSBackend(ctx context.Context, cfg AWSConfig, logger *slog.Logger) (AWS
 	}, nil
 }
 
-func (b *stsBackend) GetCredentials(ctx context.Context, shedName string) (*AWSCachedCredentials, error) {
-	roleARN := b.resolveRole(shedName)
+func (b *stsBackend) GetCredentials(ctx context.Context, server, shedName string) (*AWSCachedCredentials, error) {
+	resolved := b.cfg.Resolve(server, shedName)
+	roleARN := resolved.Role
 	if roleARN == "" {
-		return nil, fmt.Errorf("no role configured for shed %q", shedName)
+		return nil, fmt.Errorf("no role configured for shed %q on server %q", shedName, server)
 	}
+
+	// Cache and session names are keyed by server/shed so identical shed names
+	// on different servers don't collide.
+	cacheKey := serverShedKey(server, shedName)
 
 	// Check cache under lock
 	b.mu.Lock()
-	if cached, ok := b.cache[shedName]; ok {
+	if cached, ok := b.cache[cacheKey]; ok {
 		if time.Until(cached.Expiration) > b.refreshBefore {
 			b.mu.Unlock()
-			b.logger.Debug("returning cached credentials", "shed", shedName, "expires", cached.Expiration)
+			b.logger.Debug("returning cached credentials", "server", server, "shed", shedName, "expires", cached.Expiration)
 			return cached, nil
 		}
 	}
 	b.mu.Unlock()
 
+	durationSec := int32(b.resolveSessionDur(resolved).Seconds())
+
 	// Assume role without holding the lock (avoids blocking other sheds)
-	sessionName := fmt.Sprintf("shed-%s-%d", shedName, time.Now().Unix())
-	durationSec := int32(b.sessionDur.Seconds())
+	sessionName := fmt.Sprintf("shed-%s-%s-%d", server, shedName, time.Now().Unix())
 
 	result, err := b.client.AssumeRole(ctx, &sts.AssumeRoleInput{
 		RoleArn:         &roleARN,
@@ -123,10 +131,11 @@ func (b *stsBackend) GetCredentials(ctx context.Context, shedName string) (*AWSC
 	}
 
 	b.mu.Lock()
-	b.cache[shedName] = creds
+	b.cache[cacheKey] = creds
 	b.mu.Unlock()
 
 	b.logger.Info("assumed role",
+		"server", server,
 		"shed", shedName,
 		"role", roleARN,
 		"session", sessionName,
@@ -136,20 +145,22 @@ func (b *stsBackend) GetCredentials(ctx context.Context, shedName string) (*AWSC
 	return creds, nil
 }
 
-func (b *stsBackend) resolveRole(shedName string) string {
-	if shedCfg, ok := b.cfg.Sheds[shedName]; ok && shedCfg.Role != "" {
-		return shedCfg.Role
+// resolveSessionDur returns the session duration for a resolved policy, falling
+// back to the backend default when the override is unset or invalid.
+func (b *stsBackend) resolveSessionDur(resolved ResolvedAWS) time.Duration {
+	if resolved.SessionDuration == "" {
+		return b.sessionDur
 	}
-	return b.cfg.DefaultRole
+	return parseDurationOr(resolved.SessionDuration, b.sessionDur, "session_duration", b.logger)
 }
 
-func (b *stsBackend) Status(shedName string) (string, *time.Time) {
-	role := b.resolveRole(shedName)
+func (b *stsBackend) Status(server, shedName string) (string, *time.Time) {
+	role := b.cfg.Resolve(server, shedName).Role
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if cached, ok := b.cache[shedName]; ok {
+	if cached, ok := b.cache[serverShedKey(server, shedName)]; ok {
 		return role, &cached.Expiration
 	}
 	return role, nil

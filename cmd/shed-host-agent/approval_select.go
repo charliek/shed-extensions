@@ -24,7 +24,7 @@ func selectApprovalGate(cfg Config, desktop *DesktopServer) ApprovalGate {
 type denyGate struct{}
 
 func (g *denyGate) Enabled() bool { return true }
-func (g *denyGate) Approve(_, _ string) error {
+func (g *denyGate) Approve(_, _, _ string) error {
 	return fmt.Errorf("ssh.approval.method is shed-desktop but desktop.enabled is false")
 }
 func (g *denyGate) Method() string { return "shed-desktop" }

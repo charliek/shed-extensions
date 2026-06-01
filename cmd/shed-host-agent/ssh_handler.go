@@ -15,22 +15,26 @@ import (
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
-// SSHHandler processes SSH agent requests from the plugin message bus.
+// SSHHandler processes SSH agent requests from the plugin message bus for a
+// single shed server.
 type SSHHandler struct {
 	backend  SSHBackend
 	client   *sdk.HostClient
 	approval ApprovalGate
 	audit    *AuditLogger
+	server   string
 	logger   *slog.Logger
 }
 
-// NewSSHHandler creates a handler for the ssh-agent namespace.
-func NewSSHHandler(backend SSHBackend, client *sdk.HostClient, approval ApprovalGate, audit *AuditLogger, logger *slog.Logger) *SSHHandler {
+// NewSSHHandler creates a handler for the ssh-agent namespace on the named
+// server.
+func NewSSHHandler(backend SSHBackend, client *sdk.HostClient, approval ApprovalGate, audit *AuditLogger, server string, logger *slog.Logger) *SSHHandler {
 	return &SSHHandler{
 		backend:  backend,
 		client:   client,
 		approval: approval,
 		audit:    audit,
+		server:   server,
 		logger:   logger,
 	}
 }
@@ -81,7 +85,7 @@ func (h *SSHHandler) handleList(ctx context.Context, env *sdk.Envelope, shedName
 	if err != nil {
 		h.logger.Error("list keys failed", "error", err, "shed", shedName)
 		h.sendError(ctx, env, "key listing failed", protocol.SSHCodeInternal)
-		h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpList, "error", err.Error(), "none")
+		h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpList, "error", err.Error(), "none")
 		return
 	}
 
@@ -96,7 +100,7 @@ func (h *SSHHandler) handleList(ctx context.Context, env *sdk.Envelope, shedName
 
 	resp := protocol.SSHListResponse{Keys: keyInfos}
 	h.sendResponse(ctx, env, resp)
-	h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpList, "ok", fmt.Sprintf("%d keys", len(keys)), "none")
+	h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpList, "ok", fmt.Sprintf("%d keys", len(keys)), "none")
 	h.logger.Debug("list keys", "count", len(keys), "shed", shedName)
 }
 
@@ -110,10 +114,10 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 	// Touch ID approval gate
 	approvalResult := "none"
 	if h.approval.Enabled() {
-		if err := h.approval.Approve(shedName, "SSH sign request"); err != nil {
+		if err := h.approval.Approve(h.server, shedName, "SSH sign request"); err != nil {
 			h.logger.Info("sign denied by approval gate", "shed", shedName, "error", err)
 			h.sendError(ctx, env, "approval denied", protocol.SSHCodeSignFailed)
-			h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "denied", "", h.approval.Method())
+			h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "denied", "", h.approval.Method())
 			return
 		}
 		approvalResult = h.approval.Method()
@@ -142,7 +146,7 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 	if err != nil {
 		h.logger.Error("sign failed", "error", err, "shed", shedName)
 		h.sendError(ctx, env, "sign operation failed", protocol.SSHCodeSignFailed)
-		h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "error", pubKey.Type(), approvalResult)
+		h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "error", pubKey.Type(), approvalResult)
 		return
 	}
 
@@ -151,7 +155,7 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 		Blob:   base64.StdEncoding.EncodeToString(sig.Blob),
 	}
 	h.sendResponse(ctx, env, resp)
-	h.audit.Log(shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "ok", pubKey.Type(), approvalResult)
+	h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "ok", pubKey.Type(), approvalResult)
 	h.logger.Debug("sign completed", "key_type", pubKey.Type(), "shed", shedName)
 }
 

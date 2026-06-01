@@ -25,7 +25,7 @@ type mockDockerBackend struct {
 	mu      sync.Mutex
 }
 
-func (m *mockDockerBackend) GetCredentials(_ context.Context, serverURL string) (*DockerCredential, error) {
+func (m *mockDockerBackend) GetCredentials(_ context.Context, _, _, serverURL string) (*DockerCredential, error) {
 	m.mu.Lock()
 	m.callLog = append(m.callLog, serverURL)
 	m.mu.Unlock()
@@ -35,14 +35,14 @@ func (m *mockDockerBackend) GetCredentials(_ context.Context, serverURL string) 
 	return m.cred, nil
 }
 
-func (m *mockDockerBackend) ListCredentials(_ context.Context) (map[string]string, error) {
+func (m *mockDockerBackend) ListCredentials(_ context.Context, _, _ string) (map[string]string, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.list, nil
 }
 
-func (m *mockDockerBackend) Status() (bool, int) {
+func (m *mockDockerBackend) Status(_, _ string) (bool, int) {
 	return false, 0
 }
 
@@ -130,14 +130,13 @@ func TestGetCredentialsAllowlist(t *testing.T) {
 
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    map[string]bool{"allowed.io": true},
-		allowAll:   false,
+		cfg:        DockerConfig{Registries: []string{"allowed.io"}},
 		logger:     slog.Default(),
 	}
 	b.executor = b
 
 	// Allowed registry should succeed
-	cred, err := b.GetCredentials(context.Background(), "allowed.io")
+	cred, err := b.GetCredentials(context.Background(), "srv", "shed", "allowed.io")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -146,7 +145,7 @@ func TestGetCredentialsAllowlist(t *testing.T) {
 	}
 
 	// Blocked registry should fail
-	_, err = b.GetCredentials(context.Background(), "blocked.io")
+	_, err = b.GetCredentials(context.Background(), "srv", "shed", "blocked.io")
 	if err == nil {
 		t.Fatal("expected error for blocked registry")
 	}
@@ -170,13 +169,12 @@ func TestGetCredentialsAllowAll(t *testing.T) {
 
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    map[string]bool{},
-		allowAll:   true,
+		cfg:        DockerConfig{AllowAll: true},
 		logger:     slog.Default(),
 	}
 	b.executor = b
 
-	cred, err := b.GetCredentials(context.Background(), "any-registry.io")
+	cred, err := b.GetCredentials(context.Background(), "srv", "shed", "any-registry.io")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -196,8 +194,7 @@ func TestGetCredentialsCredHelper(t *testing.T) {
 
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    map[string]bool{"us-docker.pkg.dev": true},
-		allowAll:   false,
+		cfg:        DockerConfig{Registries: []string{"us-docker.pkg.dev"}},
 		executor: &mockExecutor{
 			cred: &DockerCredential{
 				ServerURL: "us-docker.pkg.dev",
@@ -208,7 +205,7 @@ func TestGetCredentialsCredHelper(t *testing.T) {
 		logger: slog.Default(),
 	}
 
-	cred, err := b.GetCredentials(context.Background(), "us-docker.pkg.dev")
+	cred, err := b.GetCredentials(context.Background(), "srv", "shed", "us-docker.pkg.dev")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -229,8 +226,7 @@ func TestGetCredentialsCredsStore(t *testing.T) {
 
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    map[string]bool{},
-		allowAll:   true,
+		cfg:        DockerConfig{AllowAll: true},
 		executor: &mockExecutor{
 			cred: &DockerCredential{
 				ServerURL: "registry.example.com",
@@ -241,7 +237,7 @@ func TestGetCredentialsCredsStore(t *testing.T) {
 		logger: slog.Default(),
 	}
 
-	cred, err := b.GetCredentials(context.Background(), "registry.example.com")
+	cred, err := b.GetCredentials(context.Background(), "srv", "shed", "registry.example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -266,8 +262,7 @@ func TestGetCredentialsPriority(t *testing.T) {
 
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    map[string]bool{},
-		allowAll:   true,
+		cfg:        DockerConfig{AllowAll: true},
 		executor: &mockExecutor{
 			cred: &DockerCredential{
 				ServerURL: "registry.example.com",
@@ -278,7 +273,7 @@ func TestGetCredentialsPriority(t *testing.T) {
 		logger: slog.Default(),
 	}
 
-	cred, err := b.GetCredentials(context.Background(), "registry.example.com")
+	cred, err := b.GetCredentials(context.Background(), "srv", "shed", "registry.example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -294,13 +289,12 @@ func TestGetCredentialsNotFound(t *testing.T) {
 
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    map[string]bool{},
-		allowAll:   true,
+		cfg:        DockerConfig{AllowAll: true},
 		logger:     slog.Default(),
 	}
 	b.executor = b
 
-	_, err := b.GetCredentials(context.Background(), "unknown.io")
+	_, err := b.GetCredentials(context.Background(), "srv", "shed", "unknown.io")
 	if err == nil {
 		t.Fatal("expected error for unknown registry")
 	}
@@ -316,13 +310,12 @@ func TestGetCredentialsNotFound(t *testing.T) {
 func TestGetCredentialsMissingConfig(t *testing.T) {
 	b := &dockerHelperBackend{
 		configPath: "/nonexistent/config.json",
-		allowed:    map[string]bool{},
-		allowAll:   true,
+		cfg:        DockerConfig{AllowAll: true},
 		logger:     slog.Default(),
 	}
 	b.executor = b
 
-	_, err := b.GetCredentials(context.Background(), "any.io")
+	_, err := b.GetCredentials(context.Background(), "srv", "shed", "any.io")
 	if err == nil {
 		t.Fatal("expected error for missing config")
 	}
@@ -343,13 +336,12 @@ func TestListCredentials(t *testing.T) {
 
 	b := &dockerHelperBackend{
 		configPath: configPath,
-		allowed:    map[string]bool{"gcr.io": true, "ghcr.io": true},
-		allowAll:   false,
+		cfg:        DockerConfig{Registries: []string{"gcr.io", "ghcr.io"}},
 		logger:     slog.Default(),
 	}
 	b.executor = b
 
-	result, err := b.ListCredentials(context.Background())
+	result, err := b.ListCredentials(context.Background(), "srv", "shed")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -381,12 +373,11 @@ func TestFindDockerConfigEnvVar(t *testing.T) {
 
 func TestStatus(t *testing.T) {
 	b := &dockerHelperBackend{
-		allowed:  map[string]bool{"a.io": true, "b.io": true},
-		allowAll: false,
-		logger:   slog.Default(),
+		cfg:    DockerConfig{Registries: []string{"a.io", "b.io"}},
+		logger: slog.Default(),
 	}
 
-	allowAll, count := b.Status()
+	allowAll, count := b.Status("srv", "shed")
 	if allowAll {
 		t.Error("expected allowAll=false")
 	}

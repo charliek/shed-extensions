@@ -92,7 +92,7 @@ func TestSSHHandlerList(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewSSHHandler(backend, client, &noopGate{}, audit, logger)
+	handler := NewSSHHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -175,7 +175,7 @@ func TestSSHHandlerSign(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewSSHHandler(backend, client, &noopGate{}, audit, logger)
+	handler := NewSSHHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -231,7 +231,7 @@ func TestSSHHandlerPing(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewSSHHandler(backend, client, &noopGate{}, audit, logger)
+	handler := NewSSHHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -291,7 +291,7 @@ func TestSSHHandlerStatus(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewSSHHandler(backend, client, &noopGate{}, audit, logger)
+	handler := NewSSHHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

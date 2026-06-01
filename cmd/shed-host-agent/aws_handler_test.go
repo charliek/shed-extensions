@@ -60,7 +60,7 @@ func TestAWSHandlerGetCredentials(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, logger)
+	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -119,7 +119,7 @@ func TestAWSHandlerPing(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, logger)
+	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -176,7 +176,7 @@ func TestAWSHandlerError(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, logger)
+	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -230,7 +230,7 @@ func TestAWSHandlerStatus(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, logger)
+	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

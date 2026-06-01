@@ -59,7 +59,7 @@ func TestDockerHandlerGet(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewDockerHandler(backend, client, audit, logger)
+	handler := NewDockerHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -125,7 +125,7 @@ func TestDockerHandlerGetError(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewDockerHandler(backend, client, audit, logger)
+	handler := NewDockerHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -178,7 +178,7 @@ func TestDockerHandlerPing(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewDockerHandler(backend, client, audit, logger)
+	handler := NewDockerHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -232,7 +232,7 @@ func TestDockerHandlerStatus(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewDockerHandler(backend, client, audit, logger)
+	handler := NewDockerHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -295,7 +295,7 @@ func TestDockerHandlerList(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewDockerHandler(backend, client, audit, logger)
+	handler := NewDockerHandler(backend, client, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

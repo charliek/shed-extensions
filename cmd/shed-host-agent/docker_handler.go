@@ -11,20 +11,24 @@ import (
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
-// DockerHandler processes Docker credential requests from the plugin message bus.
+// DockerHandler processes Docker credential requests from the plugin message
+// bus for a single shed server.
 type DockerHandler struct {
 	backend DockerBackend
 	client  *sdk.HostClient
 	audit   *AuditLogger
+	server  string
 	logger  *slog.Logger
 }
 
-// NewDockerHandler creates a handler for the docker-credentials namespace.
-func NewDockerHandler(backend DockerBackend, client *sdk.HostClient, audit *AuditLogger, logger *slog.Logger) *DockerHandler {
+// NewDockerHandler creates a handler for the docker-credentials namespace on
+// the named server.
+func NewDockerHandler(backend DockerBackend, client *sdk.HostClient, audit *AuditLogger, server string, logger *slog.Logger) *DockerHandler {
 	return &DockerHandler{
 		backend: backend,
 		client:  client,
 		audit:   audit,
+		server:  server,
 		logger:  logger,
 	}
 }
@@ -77,9 +81,9 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 		return
 	}
 
-	cred, err := h.backend.GetCredentials(ctx, req.ServerURL)
+	cred, err := h.backend.GetCredentials(ctx, h.server, shedName, req.ServerURL)
 	if err != nil {
-		h.logger.Error("get credentials failed", "error", err, "shed", shedName, "registry", req.ServerURL)
+		h.logger.Error("get credentials failed", "error", err, "server", h.server, "shed", shedName, "registry", req.ServerURL)
 
 		code := protocol.DockerCodeInternal
 		if de, ok := err.(*dockerError); ok {
@@ -87,7 +91,7 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 		}
 		// Send a generic message to the guest; the full error is logged host-side above
 		h.sendError(ctx, env, "credential request failed", code)
-		h.audit.Log(shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "error", req.ServerURL, "none")
+		h.audit.Log(h.server, shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "error", req.ServerURL, "none")
 		return
 	}
 
@@ -98,12 +102,12 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 	}
 
 	h.sendResponse(ctx, env, resp)
-	h.audit.Log(shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "ok", req.ServerURL, "none")
+	h.audit.Log(h.server, shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "ok", req.ServerURL, "none")
 	h.logger.Debug("credentials served", "shed", shedName, "registry", req.ServerURL)
 }
 
 func (h *DockerHandler) handleList(ctx context.Context, env *sdk.Envelope, shedName string) {
-	registries, err := h.backend.ListCredentials(ctx)
+	registries, err := h.backend.ListCredentials(ctx, h.server, shedName)
 	if err != nil {
 		h.logger.Error("list credentials failed", "error", err, "shed", shedName)
 		h.sendError(ctx, env, "list failed", protocol.DockerCodeInternal)
@@ -112,7 +116,7 @@ func (h *DockerHandler) handleList(ctx context.Context, env *sdk.Envelope, shedN
 
 	resp := protocol.DockerListResponse{Registries: registries}
 	h.sendResponse(ctx, env, resp)
-	h.audit.Log(shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpList, "ok", fmt.Sprintf("count:%d", len(registries)), "none")
+	h.audit.Log(h.server, shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpList, "ok", fmt.Sprintf("count:%d", len(registries)), "none")
 	h.logger.Debug("list", "shed", shedName, "count", len(registries))
 }
 
@@ -123,7 +127,7 @@ func (h *DockerHandler) handlePing(ctx context.Context, env *sdk.Envelope, shedN
 }
 
 func (h *DockerHandler) handleStatus(ctx context.Context, env *sdk.Envelope, shedName string) {
-	allowAll, registryCount := h.backend.Status()
+	allowAll, registryCount := h.backend.Status(h.server, shedName)
 
 	resp := protocol.DockerStatusResponse{
 		Connected:     true,
