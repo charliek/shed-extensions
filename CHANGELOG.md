@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.3.4
 
 ### Features
 
@@ -11,7 +11,7 @@
   named subset (`discovery.servers: [mini2, mini3]`). New servers added with
   `shed server add` are picked up live (via fsnotify, with `poll`/`off`
   alternatives) without a restart. Single-server configs using `server:` are
-  unchanged.
+  unchanged. ([#21](https://github.com/charliek/shed-extensions/pull/21))
 - **Hierarchical AWS/Docker config.** The `aws:` and `docker:` blocks gain a
   per-server / per-shed override tree (`servers.<server>.sheds.<shed>`) layered
   over the top-level defaults. Per-shed lookups — the AWS credential cache and
@@ -21,6 +21,29 @@
 - **Server-tagged audit.** Audit log entries and shed-desktop events carry a
   `server` field (omitted in single-server mode) so the combined log
   distinguishes activity per server.
+- **shed-desktop approval delegation (opt-in, default-off).** A new optional
+  Unix-domain-socket channel lets `shed-host-agent` delegate SSH `sign` approval
+  decisions to the [shed-desktop](https://github.com/charliek/shed-desktop)
+  menu-bar app, and streams an all-namespace audit/event feed to it. Disabled by
+  default (`desktop.enabled: false`) and fully inert when off — no socket, no
+  goroutine, no changed code path. Only request *metadata* crosses the socket;
+  key material never leaves the agent. `ssh-agent` `sign` is gated;
+  `aws-credentials`/`docker-credentials` are stream-only. Fails closed (a deny)
+  on no app connected, timeout, or disconnect. Enable with `desktop.enabled:
+  true` and `ssh.approval.method: shed-desktop`; protocol documented in
+  `docs/reference/desktop-approval.md`.
+  ([#20](https://github.com/charliek/shed-extensions/pull/20))
+
+### Release process
+
+- Bumped CI/release actions onto Node 24 runtimes:
+  `actions/create-github-app-token` v2 → v3
+  ([#18](https://github.com/charliek/shed-extensions/pull/18)),
+  `docker/setup-qemu-action` v3 → v4 and `docker/build-push-action` v6 → v7
+  ([#16](https://github.com/charliek/shed-extensions/pull/16)). The release
+  workflow's App-token step now authenticates via `client-id` instead of the
+  deprecated `app-id`
+  ([#19](https://github.com/charliek/shed-extensions/pull/19)).
 
 ## v0.3.3
 
