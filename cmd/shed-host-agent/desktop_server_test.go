@@ -15,9 +15,25 @@ import (
 
 func testLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+// shortSocketPath returns a Unix-domain socket path under a short root.
+// t.TempDir() lives under $TMPDIR, which on macOS CI runners is long enough
+// (~49 bytes) that the longer test names push the full path past the macOS
+// sun_path cap (104 bytes) — net.Listen("unix", …) then fails to bind and the
+// socket never appears. A short, test-name-independent /tmp root keeps every
+// case well under the cap on both macOS and Linux.
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "shed-ds")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "a.sock")
+}
+
 func startTestServer(t *testing.T, timeoutMS int) (*DesktopServer, *AuditLogger, context.CancelFunc, string) {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "agent.sock")
+	sock := shortSocketPath(t)
 	audit := NewAuditLogger(LogConfig{Enabled: false}, testLogger())
 	cfg := DesktopConfig{Enabled: true, SocketPath: sock, TimeoutMS: timeoutMS}
 	s := NewDesktopServer(cfg, audit, "test", testLogger())
