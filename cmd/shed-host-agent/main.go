@@ -14,8 +14,25 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/charliek/shed-extensions/internal/protocol"
 	"github.com/charliek/shed-extensions/internal/version"
 )
+
+// desktopGateNamespaces lists the credential namespaces whose approval policy is
+// shed-desktop — advertised to the app so it shows the matching approval UI.
+func desktopGateNamespaces(cfg Config) []string {
+	var ns []string
+	if cfg.SSH.Approval.EffectivePolicy() == PolicyShedDesktop {
+		ns = append(ns, protocol.NamespaceSSHAgent)
+	}
+	if cfg.AWS.Approval.EffectivePolicy() == PolicyShedDesktop {
+		ns = append(ns, protocol.NamespaceAWSCredentials)
+	}
+	if cfg.Docker.Approval.EffectivePolicy() == PolicyShedDesktop {
+		ns = append(ns, protocol.NamespaceDockerCredentials)
+	}
+	return ns
+}
 
 func main() {
 	configPath := flag.String("config", "~/.config/shed/extensions.yaml", "Path to config file")
@@ -67,9 +84,10 @@ func main() {
 	// Optional shed-desktop approval delegation channel (feature-flagged off
 	// by default). When enabled, the agent serves a local UDS the app uses
 	// for the all-namespace audit/event stream and SSH approval decisions.
+	gateNamespaces := desktopGateNamespaces(cfg)
 	var desktop *DesktopServer
 	if cfg.Desktop.Enabled {
-		desktop = NewDesktopServer(cfg.Desktop, audit, version.FullInfo(), logger)
+		desktop = NewDesktopServer(cfg.Desktop, audit, version.FullInfo(), gateNamespaces, logger)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -78,9 +96,15 @@ func main() {
 		logger.Info("shed-desktop approval channel enabled", "socket", cfg.Desktop.SocketPath)
 	}
 
-	// Select the approval gate now that the desktop channel (if any) exists.
-	approval := selectApprovalGate(cfg, desktop)
-	logger.Info("approval gate", "method", approval.Method(), "enabled", approval.Enabled())
+	// Build the per-extension approval gates now that the desktop channel (if
+	// any) exists. An empty/omitted policy resolves to deny-all (fail closed).
+	sshApproval := gateFor(protocol.NamespaceSSHAgent, protocol.SSHOpSign, cfg.SSH.Approval, desktop)
+	awsApproval := gateFor(protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, cfg.AWS.Approval, desktop)
+	dockerApproval := gateFor(protocol.NamespaceDockerCredentials, protocol.DockerOpGet, cfg.Docker.Approval, desktop)
+	logger.Info("approval policies",
+		"ssh", cfg.SSH.Approval.EffectivePolicy(),
+		"aws", cfg.AWS.Approval.EffectivePolicy(),
+		"docker", cfg.Docker.Approval.EffectivePolicy())
 
 	// Build the server-agnostic backends once; per-server handlers share them.
 	// AWS and Docker are optional — a missing/unconfigured backend stays nil and
@@ -100,12 +124,14 @@ func main() {
 	}
 
 	deps := SharedDeps{
-		SSHBackend:    sshBackend,
-		AWSBackend:    awsBackend,
-		DockerBackend: dockerBackend,
-		Approval:      approval,
-		Audit:         audit,
-		Logger:        logger,
+		SSHBackend:     sshBackend,
+		AWSBackend:     awsBackend,
+		DockerBackend:  dockerBackend,
+		SSHApproval:    sshApproval,
+		AWSApproval:    awsApproval,
+		DockerApproval: dockerApproval,
+		Audit:          audit,
+		Logger:         logger,
 	}
 	sup := NewSupervisor(ctx, deps)
 

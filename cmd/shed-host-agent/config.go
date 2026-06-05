@@ -163,9 +163,10 @@ type DesktopConfig struct {
 // top-level fields are the defaults; Servers carries per-server (and per-shed)
 // overrides layered over them. ConfigPath is process-global.
 type DockerConfig struct {
-	Registries []string `yaml:"registries"`  // registry hostnames to allow (default)
-	AllowAll   bool     `yaml:"allow_all"`   // bypass allowlist (default)
-	ConfigPath string   `yaml:"config_path"` // override Docker config.json path
+	Registries []string       `yaml:"registries"`  // registry hostnames to allow (default)
+	AllowAll   bool           `yaml:"allow_all"`   // bypass allowlist (default)
+	ConfigPath string         `yaml:"config_path"` // override Docker config.json path
+	Approval   ApprovalConfig `yaml:"approval"`
 	// Servers holds per-server overrides, each optionally with per-shed nesting.
 	Servers map[string]DockerServerConfig `yaml:"servers"`
 }
@@ -221,10 +222,11 @@ func (d DockerConfig) Resolve(server, shed string) ResolvedDocker {
 // over them. SourceProfile and CacheRefreshBefore are process-global (a single
 // STS client is built from SourceProfile) and are not overridable per server.
 type AWSConfig struct {
-	SourceProfile      string `yaml:"source_profile"`
-	DefaultRole        string `yaml:"default_role"`
-	SessionDuration    string `yaml:"session_duration"`
-	CacheRefreshBefore string `yaml:"cache_refresh_before"`
+	SourceProfile      string         `yaml:"source_profile"`
+	DefaultRole        string         `yaml:"default_role"`
+	SessionDuration    string         `yaml:"session_duration"`
+	CacheRefreshBefore string         `yaml:"cache_refresh_before"`
+	Approval           ApprovalConfig `yaml:"approval"`
 	// Sheds is a deprecated global per-shed override map (applies regardless of
 	// server). Prefer Servers.<name>.sheds.<name>. Kept for back-compat.
 	Sheds map[string]ShedAWSConfig `yaml:"sheds"`
@@ -307,26 +309,49 @@ func (a AWSConfig) HasAnyRole() bool {
 	return false
 }
 
+// Approval policy values. Each credential extension (ssh/aws/docker) selects one
+// via its `approval.policy`. An empty/omitted policy means PolicyDenyAll — the
+// safe default, so a misconfigured extension fails closed rather than open.
+const (
+	PolicyDenyAll              = "deny-all"               // reject every request
+	PolicyApproveAll           = "approve-all"            // allow every request (allowlist/role still applies)
+	PolicyBiometrics           = "biometrics"             // native Touch ID, biometrics only (SSH only)
+	PolicyBiometricsOrPassword = "biometrics-or-password" // native Touch ID + Apple Watch / password fallback (SSH only)
+	PolicyShedDesktop          = "shed-desktop"           // delegate the decision to the shed-desktop app
+)
+
 // SSHConfig controls the SSH agent handler behavior.
 type SSHConfig struct {
 	Mode     string         `yaml:"mode"` // "agent-forward", "local-keys", or "" (auto)
 	Approval ApprovalConfig `yaml:"approval"`
 }
 
-// ApprovalConfig controls biometric/Touch ID approval gates.
+// ApprovalConfig controls how a credential extension's requests are approved.
+// Policy is the single decision (see the Policy* constants). Scope and SessionTTL
+// apply ONLY to the native biometric policies (they cache a Touch ID approval);
+// under shed-desktop the app owns scope/ttl, and under deny-all/approve-all they
+// are unused.
 type ApprovalConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	Policy     string `yaml:"policy"`      // "per-request", "per-session", "per-shed"
-	Method     string `yaml:"method"`      // "biometrics-or-password" (default), "biometrics"
-	SessionTTL string `yaml:"session_ttl"` // e.g., "4h"
+	Policy     string `yaml:"policy"`
+	Scope      string `yaml:"scope"`       // "per-request" | "per-session" | "per-shed" (biometric policies)
+	SessionTTL string `yaml:"session_ttl"` // e.g., "4h" (biometric policies)
 }
 
-// resolveAllowPassword maps the approval method to whether LocalAuthentication
-// may fall back to Apple Watch / account password (LAPolicyDeviceOwnerAuthentication).
-// Empty and unknown values default to true so approval works in clamshell mode and
-// on Macs without a biometric sensor. Only "biometrics" disables the fallback.
-func resolveAllowPassword(method string) bool {
-	return method != "biometrics"
+// EffectivePolicy returns the configured policy, defaulting an empty value to
+// PolicyDenyAll (fail-closed).
+func (a ApprovalConfig) EffectivePolicy() string {
+	if a.Policy == "" {
+		return PolicyDenyAll
+	}
+	return a.Policy
+}
+
+// resolveAllowPassword reports whether a native biometric policy may fall back
+// to Apple Watch / account password (LAPolicyDeviceOwnerAuthentication) — true
+// for "biometrics-or-password" so approval works in clamshell mode and on Macs
+// without a sensor; false for "biometrics" (Touch ID only).
+func resolveAllowPassword(policy string) bool {
+	return policy != PolicyBiometrics
 }
 
 // LogConfig controls audit logging.
@@ -341,9 +366,11 @@ func DefaultConfig() Config {
 	return Config{
 		Server: "http://localhost:8080",
 		SSH: SSHConfig{
+			// Policy is intentionally empty here => deny-all (fail closed) unless
+			// the config sets one. Scope/SessionTTL are the defaults a native
+			// biometric policy uses when the config omits them.
 			Approval: ApprovalConfig{
-				Policy:     "per-session",
-				Method:     "biometrics-or-password",
+				Scope:      "per-session",
 				SessionTTL: "4h",
 			},
 		},
@@ -382,6 +409,10 @@ func LoadConfig(path string) (Config, error) {
 	cfg.Logging.Path = expandTilde(cfg.Logging.Path)
 	cfg.Desktop.SocketPath = expandTilde(cfg.Desktop.SocketPath)
 
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("invalid config: %w", err)
+	}
+
 	// Apply discovery defaults and expand its source path (only when the
 	// discovery block is present — its absence means legacy single-server).
 	if cfg.Discovery != nil {
@@ -389,6 +420,38 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// Validate checks each extension's approval.policy is a recognized value for
+// that extension. An empty policy is allowed (it means deny-all). SSH alone
+// supports the native biometric policies; AWS/Docker support only
+// deny-all/approve-all/shed-desktop (native per-request Touch ID is a poor fit
+// for background credential refresh / per-pull).
+func (c Config) Validate() error {
+	sshAllowed := []string{PolicyDenyAll, PolicyApproveAll, PolicyBiometrics, PolicyBiometricsOrPassword, PolicyShedDesktop}
+	credAllowed := []string{PolicyDenyAll, PolicyApproveAll, PolicyShedDesktop}
+	if err := validatePolicy("ssh", c.SSH.Approval.Policy, sshAllowed); err != nil {
+		return err
+	}
+	if err := validatePolicy("aws", c.AWS.Approval.Policy, credAllowed); err != nil {
+		return err
+	}
+	if err := validatePolicy("docker", c.Docker.Approval.Policy, credAllowed); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validatePolicy(provider, policy string, allowed []string) error {
+	if policy == "" {
+		return nil // empty => deny-all
+	}
+	for _, a := range allowed {
+		if policy == a {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s.approval.policy %q is not one of %s", provider, policy, strings.Join(allowed, ", "))
 }
 
 // DefaultDiscoverySource is the shed CLI client config the agent discovers

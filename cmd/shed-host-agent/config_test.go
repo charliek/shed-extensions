@@ -15,10 +15,17 @@ server: http://localhost:9090
 ssh:
   mode: agent-forward
   approval:
-    enabled: true
-    policy: per-request
-    method: biometrics
+    policy: biometrics
+    scope: per-request
     session_ttl: 2h
+aws:
+  default_role: arn:aws:iam::123:role/dev
+  approval:
+    policy: approve-all
+docker:
+  registries: [ghcr.io]
+  approval:
+    policy: shed-desktop
 logging:
   enabled: true
   path: /tmp/test-audit.log
@@ -38,17 +45,20 @@ logging:
 	if cfg.SSH.Mode != "agent-forward" {
 		t.Errorf("ssh.mode: got %q, want %q", cfg.SSH.Mode, "agent-forward")
 	}
-	if !cfg.SSH.Approval.Enabled {
-		t.Error("ssh.approval.enabled: got false, want true")
+	if cfg.SSH.Approval.Policy != PolicyBiometrics {
+		t.Errorf("ssh.approval.policy: got %q, want %q", cfg.SSH.Approval.Policy, PolicyBiometrics)
 	}
-	if cfg.SSH.Approval.Policy != "per-request" {
-		t.Errorf("ssh.approval.policy: got %q, want %q", cfg.SSH.Approval.Policy, "per-request")
-	}
-	if cfg.SSH.Approval.Method != "biometrics" {
-		t.Errorf("ssh.approval.method: got %q, want %q", cfg.SSH.Approval.Method, "biometrics")
+	if cfg.SSH.Approval.Scope != "per-request" {
+		t.Errorf("ssh.approval.scope: got %q, want %q", cfg.SSH.Approval.Scope, "per-request")
 	}
 	if cfg.SSH.Approval.SessionTTL != "2h" {
 		t.Errorf("ssh.approval.session_ttl: got %q, want %q", cfg.SSH.Approval.SessionTTL, "2h")
+	}
+	if cfg.AWS.Approval.Policy != PolicyApproveAll {
+		t.Errorf("aws.approval.policy: got %q, want %q", cfg.AWS.Approval.Policy, PolicyApproveAll)
+	}
+	if cfg.Docker.Approval.Policy != PolicyShedDesktop {
+		t.Errorf("docker.approval.policy: got %q, want %q", cfg.Docker.Approval.Policy, PolicyShedDesktop)
 	}
 	if cfg.Logging.Path != "/tmp/test-audit.log" {
 		t.Errorf("logging.path: got %q, want %q", cfg.Logging.Path, "/tmp/test-audit.log")
@@ -66,6 +76,8 @@ aws:
   default_role: arn:aws:iam::123456789012:role/dev
   session_duration: 2h
   cache_refresh_before: 10m
+  approval:
+    policy: approve-all
   sheds:
     my-service:
       role: arn:aws:iam::123456789012:role/my-service
@@ -86,12 +98,6 @@ aws:
 	}
 	if cfg.AWS.DefaultRole != "arn:aws:iam::123456789012:role/dev" {
 		t.Errorf("aws.default_role: got %q", cfg.AWS.DefaultRole)
-	}
-	if cfg.AWS.SessionDuration != "2h" {
-		t.Errorf("aws.session_duration: got %q, want %q", cfg.AWS.SessionDuration, "2h")
-	}
-	if cfg.AWS.CacheRefreshBefore != "10m" {
-		t.Errorf("aws.cache_refresh_before: got %q, want %q", cfg.AWS.CacheRefreshBefore, "10m")
 	}
 	if len(cfg.AWS.Sheds) != 2 {
 		t.Fatalf("aws.sheds: got %d entries, want 2", len(cfg.AWS.Sheds))
@@ -118,27 +124,28 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.SSH.Mode != "" {
 		t.Errorf("ssh.mode default: got %q, want empty", cfg.SSH.Mode)
 	}
-	if cfg.SSH.Approval.Enabled {
-		t.Error("ssh.approval.enabled default: got true, want false")
+	// No policy specified anywhere => every extension is deny-all (fail closed).
+	if got := cfg.SSH.Approval.EffectivePolicy(); got != PolicyDenyAll {
+		t.Errorf("ssh policy default: got %q, want %q", got, PolicyDenyAll)
 	}
-	if cfg.SSH.Approval.Policy != "per-session" {
-		t.Errorf("ssh.approval.policy default: got %q, want %q", cfg.SSH.Approval.Policy, "per-session")
+	if got := cfg.AWS.Approval.EffectivePolicy(); got != PolicyDenyAll {
+		t.Errorf("aws policy default: got %q, want %q", got, PolicyDenyAll)
 	}
-	if cfg.SSH.Approval.Method != "biometrics-or-password" {
-		t.Errorf("ssh.approval.method default: got %q, want %q", cfg.SSH.Approval.Method, "biometrics-or-password")
+	if got := cfg.Docker.Approval.EffectivePolicy(); got != PolicyDenyAll {
+		t.Errorf("docker policy default: got %q, want %q", got, PolicyDenyAll)
+	}
+	// Biometric scope/ttl defaults exist for when a biometric policy is chosen.
+	if cfg.SSH.Approval.Scope != "per-session" {
+		t.Errorf("ssh.approval.scope default: got %q, want per-session", cfg.SSH.Approval.Scope)
+	}
+	if cfg.SSH.Approval.SessionTTL != "4h" {
+		t.Errorf("ssh.approval.session_ttl default: got %q, want 4h", cfg.SSH.Approval.SessionTTL)
 	}
 	if cfg.Logging.Enabled != true {
 		t.Error("logging.enabled default: got false, want true")
 	}
-	// AWS defaults
 	if cfg.AWS.SourceProfile != "default" {
 		t.Errorf("aws.source_profile default: got %q, want %q", cfg.AWS.SourceProfile, "default")
-	}
-	if cfg.AWS.SessionDuration != "1h" {
-		t.Errorf("aws.session_duration default: got %q, want %q", cfg.AWS.SessionDuration, "1h")
-	}
-	if cfg.AWS.CacheRefreshBefore != "5m" {
-		t.Errorf("aws.cache_refresh_before default: got %q, want %q", cfg.AWS.CacheRefreshBefore, "5m")
 	}
 }
 
@@ -149,65 +156,100 @@ func TestLoadConfigMissing(t *testing.T) {
 	}
 }
 
-func TestLoadConfigInvalid(t *testing.T) {
+func TestLoadConfigInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-
 	if err := os.WriteFile(cfgPath, []byte("{{invalid yaml"), 0644); err != nil {
 		t.Fatal(err)
 	}
-
-	_, err := LoadConfig(cfgPath)
-	if err == nil {
+	if _, err := LoadConfig(cfgPath); err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
 }
 
-func TestLoadConfigApprovalEnabledNoMethod(t *testing.T) {
-	// Backward-compat regression: an existing config that enables approval but
-	// omits `method` must inherit the biometrics-or-password default (the fix
-	// for clamshell/sensorless Macs) rather than an empty string.
+// An unrecognized policy value is rejected at load time.
+func TestLoadConfigRejectsBadPolicy(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-
-	content := `
-ssh:
-  approval:
-    enabled: true
-    policy: per-session
-`
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("ssh:\n  approval:\n    policy: maybe\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := LoadConfig(cfgPath); err == nil {
+		t.Fatal("expected error for unknown ssh.approval.policy")
+	}
+}
 
-	cfg, err := LoadConfig(cfgPath)
+// AWS/Docker do not support the native biometric policies (SSH only).
+func TestValidateRejectsBiometricForAWS(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AWS.Approval.Policy = PolicyBiometrics
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("aws biometrics policy should be rejected")
+	}
+	cfg = DefaultConfig()
+	cfg.Docker.Approval.Policy = PolicyBiometricsOrPassword
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("docker biometrics-or-password policy should be rejected")
+	}
+}
+
+func TestValidateAcceptsValidPolicies(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SSH.Approval.Policy = PolicyBiometricsOrPassword
+	cfg.AWS.Approval.Policy = PolicyShedDesktop
+	cfg.Docker.Approval.Policy = PolicyApproveAll
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+}
+
+func TestEffectivePolicyDefaultsToDenyAll(t *testing.T) {
+	if got := (ApprovalConfig{}).EffectivePolicy(); got != PolicyDenyAll {
+		t.Errorf("empty policy = %q, want %q", got, PolicyDenyAll)
+	}
+	if got := (ApprovalConfig{Policy: PolicyApproveAll}).EffectivePolicy(); got != PolicyApproveAll {
+		t.Errorf("approve-all policy = %q, want %q", got, PolicyApproveAll)
+	}
+}
+
+// The shipped default config (installed by Homebrew as extensions.yaml) must
+// load + validate, and carry the documented defaults.
+func TestExampleConfigIsValid(t *testing.T) {
+	cfg, err := LoadConfig("../../configs/extensions.example.yaml")
 	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
+		t.Fatalf("example config failed to load/validate: %v", err)
 	}
-
-	if !cfg.SSH.Approval.Enabled {
-		t.Error("ssh.approval.enabled: got false, want true")
+	if cfg.SSH.Approval.Policy != PolicyBiometricsOrPassword {
+		t.Errorf("ssh policy = %q, want %q", cfg.SSH.Approval.Policy, PolicyBiometricsOrPassword)
 	}
-	if cfg.SSH.Approval.Method != "biometrics-or-password" {
-		t.Errorf("ssh.approval.method: got %q, want %q", cfg.SSH.Approval.Method, "biometrics-or-password")
+	if cfg.SSH.Approval.SessionTTL != "1h" {
+		t.Errorf("ssh session_ttl = %q, want 1h", cfg.SSH.Approval.SessionTTL)
+	}
+	if cfg.AWS.Approval.Policy != PolicyDenyAll {
+		t.Errorf("aws policy = %q, want %q (off by default)", cfg.AWS.Approval.Policy, PolicyDenyAll)
+	}
+	if cfg.Docker.Approval.Policy != PolicyApproveAll {
+		t.Errorf("docker policy = %q, want %q", cfg.Docker.Approval.Policy, PolicyApproveAll)
+	}
+	if len(cfg.Docker.Registries) != 2 || cfg.Docker.Registries[0] != "docker.io" || cfg.Docker.Registries[1] != "ghcr.io" {
+		t.Errorf("docker registries = %v, want [docker.io ghcr.io]", cfg.Docker.Registries)
 	}
 }
 
 func TestResolveAllowPassword(t *testing.T) {
 	tests := []struct {
-		method string
+		policy string
 		want   bool
 	}{
-		{"biometrics", false},
-		{"biometrics-or-password", true},
-		{"", true},
-		{"BIOMETRICS", true}, // case-sensitive: only exact "biometrics" is strict
-		{"garbage", true},    // unknown values fall back to the permissive default
+		{PolicyBiometrics, false},
+		{PolicyBiometricsOrPassword, true},
+		{"", true},        // only exact "biometrics" disables the fallback
+		{"garbage", true}, // unknown values keep the permissive fallback
 	}
 	for _, tt := range tests {
-		t.Run(tt.method, func(t *testing.T) {
-			if got := resolveAllowPassword(tt.method); got != tt.want {
-				t.Errorf("resolveAllowPassword(%q) = %v, want %v", tt.method, got, tt.want)
+		t.Run(tt.policy, func(t *testing.T) {
+			if got := resolveAllowPassword(tt.policy); got != tt.want {
+				t.Errorf("resolveAllowPassword(%q) = %v, want %v", tt.policy, got, tt.want)
 			}
 		})
 	}

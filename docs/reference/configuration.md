@@ -11,34 +11,33 @@ server: http://localhost:8080
 ssh:
   # SSH backend: "agent-forward", "local-keys", or "" (auto-detect)
   # mode: ""
-
-  # Touch ID / biometric approval
   approval:
-    enabled: false
-    # policy: per-session     # per-request | per-session | per-shed
-    # method: biometrics-or-password   # biometrics-or-password | biometrics
-    # session_ttl: 4h
+    policy: biometrics-or-password   # see "Approval model" below
+    scope: per-session               # biometric policies only
+    session_ttl: 1h
 
 aws:
   source_profile: default
-  default_role: arn:aws:iam::123456789012:role/smartthings-dev
+  default_role: arn:aws:iam::123456789012:role/acmeco-dev
   session_duration: 1h
   cache_refresh_before: 5m
-
+  approval:
+    policy: deny-all                 # off until a role is set; then approve-all | shed-desktop
   # Per-shed role overrides
   sheds:
     my-service:
-      role: arn:aws:iam::123456789012:role/smartthings-dev
+      role: arn:aws:iam::123456789012:role/acmeco-dev
     integration-tests:
-      role: arn:aws:iam::123456789012:role/smartthings-staging-readonly
+      role: arn:aws:iam::123456789012:role/acmeco-staging-readonly
 
 docker:
   registries:
-    - us-docker.pkg.dev
+    - docker.io
     - ghcr.io
-    - artifactory.corp.com
+    - registry.acmeco.com
   # allow_all: true         # bypass allowlist
-  # config_path: ~/.docker/config.json  # override Docker config location
+  approval:
+    policy: approve-all              # deny-all | approve-all | shed-desktop
 
 # Audit logging
 logging:
@@ -46,22 +45,43 @@ logging:
   path: ~/.local/share/shed/extensions-audit.log
 ```
 
+### Approval model
+
+Every extension (`ssh`, `aws`, `docker`) has a required `approval.policy`. An
+omitted/empty policy means **`deny-all`** (fail closed). Values:
+
+| Policy | Behavior |
+|--------|----------|
+| `deny-all` | Reject every request. The safe default / kill-switch. |
+| `approve-all` | Allow every request. Any allowlist/role below still applies — this only removes the approval prompt. |
+| `shed-desktop` | Decide each request in the [shed-desktop](desktop-approval.md) app (requires `desktop.enabled`). The app's Preferences own method/scope/TTL; if the app isn't running, requests **fail closed**. |
+| `biometrics` | **SSH only.** Native macOS Touch ID, biometrics only (fails with no sensor). |
+| `biometrics-or-password` | **SSH only.** Native Touch ID, Apple Watch, **or** account password — works in clamshell mode and on Macs without a sensor. |
+
+`scope` and `session_ttl` apply **only** to the native biometric policies (they
+cache an approval so you aren't prompted on every operation). Under
+`shed-desktop` the app owns scope/TTL; under `deny-all`/`approve-all` they are unused.
+
 ### SSH Settings
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `ssh.mode` | string | `""` (auto) | SSH backend mode. Auto-detect selects agent-forward if `SSH_AUTH_SOCK` exists, falls back to local-keys. |
-| `ssh.approval.enabled` | bool | `false` | Enable Touch ID approval gate for sign operations |
-| `ssh.approval.policy` | string | `per-session` | Approval policy: `per-request`, `per-session`, `per-shed` |
-| `ssh.approval.method` | string | `biometrics-or-password` | Auth method: `biometrics-or-password` (Touch ID, Apple Watch, or account password — works in clamshell mode and on Macs without a sensor) or `biometrics` (Touch ID only) |
-| `ssh.approval.session_ttl` | string | `4h` | How long a session approval remains valid |
+| `ssh.approval.policy` | string | `deny-all` | One of `deny-all`, `approve-all`, `biometrics`, `biometrics-or-password`, `shed-desktop` (see Approval model) |
+| `ssh.approval.scope` | string | `per-session` | Biometric policies only: `per-request`, `per-session`, `per-shed` |
+| `ssh.approval.session_ttl` | string | `4h` | Biometric policies only: how long a cached approval remains valid |
 
 ### AWS Settings
 
+`approval.policy` is one of `deny-all`, `approve-all`, `shed-desktop`. The role
+fields below are authorization (which role to assume) and must be set here —
+there is no shed-desktop Preferences UI for them.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `aws.approval.policy` | string | `deny-all` | `deny-all`, `approve-all`, or `shed-desktop` |
 | `aws.source_profile` | string | `default` | AWS credentials profile to use for AssumeRole |
-| `aws.default_role` | string | | IAM role ARN to assume (required if any shed needs AWS) |
+| `aws.default_role` | string | | IAM role ARN to assume (required for AWS to work) |
 | `aws.session_duration` | string | `1h` | STS session token lifetime |
 | `aws.cache_refresh_before` | string | `5m` | Refresh cached credentials when less than this time remains |
 | `aws.sheds.<name>.role` | string | | Deprecated global per-shed role override (any server). Prefer `aws.servers.…` |
@@ -70,8 +90,13 @@ logging:
 
 ### Docker Settings
 
+`approval.policy` is one of `deny-all`, `approve-all`, `shed-desktop`. The
+`registries` allowlist is authorization and must be set here — there is no
+shed-desktop Preferences UI for it.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `docker.approval.policy` | string | `deny-all` | `deny-all`, `approve-all`, or `shed-desktop` |
 | `docker.registries` | []string | `[]` | Registry hostnames to allow credential brokering for |
 | `docker.allow_all` | bool | `false` | Allow credentials for any registry (bypasses allowlist) |
 | `docker.config_path` | string | (auto-detect) | Override Docker config.json path. If unset, checks `$DOCKER_CONFIG/config.json` first, then `~/.docker/config.json` |

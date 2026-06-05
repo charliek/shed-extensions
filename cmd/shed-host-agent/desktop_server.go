@@ -64,15 +64,25 @@ func (c *consumerConn) send(v any) error {
 	return err
 }
 
+// desktopDecision is the app's reply to an approval request, including how it
+// decided (for the durable audit log).
+type desktopDecision struct {
+	approved  bool
+	decidedBy string
+	scope     string
+	ttl       string
+}
+
 // DesktopServer exposes the UDS for shed-desktop: the all-namespace
-// audit/event stream plus the SSH approval request/response channel. Single
+// audit/event stream plus the approval request/response channel. Single
 // active consumer, last-writer-wins; fail-closed (deny) when none connected.
 type DesktopServer struct {
-	cfg          DesktopConfig
-	audit        *AuditLogger
-	logger       *slog.Logger
-	timeout      time.Duration
-	agentVersion string
+	cfg            DesktopConfig
+	audit          *AuditLogger
+	logger         *slog.Logger
+	timeout        time.Duration
+	agentVersion   string
+	gateNamespaces []string // namespaces whose policy is shed-desktop
 
 	mu       sync.Mutex
 	consumer *consumerConn
@@ -84,20 +94,23 @@ type DesktopServer struct {
 // pendingReq binds an in-flight approval to the consumer that owns it, so a
 // superseded/old connection can't resolve a request it merely observed.
 type pendingReq struct {
-	ch    chan bool
+	ch    chan desktopDecision
 	owner *consumerConn
 }
 
-// NewDesktopServer builds a server. SSH-only gating in v1.
-func NewDesktopServer(cfg DesktopConfig, audit *AuditLogger, agentVersion string, logger *slog.Logger) *DesktopServer {
+// NewDesktopServer builds a server. gateNamespaces are the credential namespaces
+// whose approval policy is shed-desktop (advertised to the app so it shows the
+// matching approval UI).
+func NewDesktopServer(cfg DesktopConfig, audit *AuditLogger, agentVersion string, gateNamespaces []string, logger *slog.Logger) *DesktopServer {
 	timeout := time.Duration(cfg.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 25 * time.Second
 	}
 	return &DesktopServer{
 		cfg: cfg, audit: audit, logger: logger, timeout: timeout, agentVersion: agentVersion,
-		pending: make(map[string]pendingReq),
-		ringMax: 100,
+		gateNamespaces: gateNamespaces,
+		pending:        make(map[string]pendingReq),
+		ringMax:        100,
 	}
 }
 
@@ -173,7 +186,7 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 		V: desktopProtocolVersion, Type: "hello_ack", ID: newID(), Ts: nowRFC3339(),
 		Agent:            agentInfo{Version: s.agentVersion, ApprovalMethod: "shed-desktop"},
 		Namespaces:       []string{protocol.NamespaceSSHAgent, protocol.NamespaceAWSCredentials, protocol.NamespaceDockerCredentials},
-		GateNamespaces:   []string{protocol.NamespaceSSHAgent},
+		GateNamespaces:   s.gateNamespaces,
 		RequestTimeoutMS: int(s.timeout / time.Millisecond),
 		Accepted:         true,
 	}); err != nil {
@@ -210,7 +223,12 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 		case "approval_response":
 			var resp approvalResponseMsg
 			if json.Unmarshal(line, &resp) == nil {
-				s.resolve(resp.RequestID, resp.Decision == "approve", c)
+				s.resolve(resp.RequestID, desktopDecision{
+					approved:  resp.Decision == "approve",
+					decidedBy: resp.DecidedBy,
+					scope:     resp.Scope,
+					ttl:       resp.TTL,
+				}, c)
 			}
 		case "pong":
 			// liveness only
@@ -220,16 +238,17 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 
 // RequestApproval sends an approval request to the connected app and blocks on
 // the reply within the timeout. Fail-closed: returns an error (→ deny) when no
-// app is connected, on timeout, or on a transport error.
-func (s *DesktopServer) RequestApproval(ctx context.Context, namespace, op, server, shed, detail string) (bool, error) {
+// app is connected, on timeout, or on a transport error. On approval it returns
+// how the app decided (decided_by/scope/ttl) for the durable audit log.
+func (s *DesktopServer) RequestApproval(ctx context.Context, namespace, op, server, shed, detail string) (desktopDecision, error) {
 	s.mu.Lock()
 	consumer := s.consumer
 	if consumer == nil {
 		s.mu.Unlock()
-		return false, errNoConsumer
+		return desktopDecision{}, errNoConsumer
 	}
 	id := newID()
-	ch := make(chan bool, 1)
+	ch := make(chan desktopDecision, 1)
 	s.pending[id] = pendingReq{ch: ch, owner: consumer}
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); delete(s.pending, id); s.mu.Unlock() }()
@@ -240,15 +259,15 @@ func (s *DesktopServer) RequestApproval(ctx context.Context, namespace, op, serv
 		ExpiresAt: time.Now().Add(s.timeout).UTC().Format(time.RFC3339),
 	}
 	if err := consumer.send(req); err != nil {
-		return false, err
+		return desktopDecision{}, err
 	}
 	select {
-	case ok := <-ch:
-		return ok, nil
+	case dec := <-ch:
+		return dec, nil
 	case <-time.After(s.timeout):
-		return false, errTimeout
+		return desktopDecision{}, errTimeout
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return desktopDecision{}, ctx.Err()
 	}
 }
 
@@ -277,7 +296,7 @@ func (s *DesktopServer) demote(c *consumerConn) {
 	for id, p := range s.pending {
 		if p.owner == c {
 			select {
-			case p.ch <- false:
+			case p.ch <- desktopDecision{approved: false}:
 			default:
 			}
 			delete(s.pending, id)
@@ -294,7 +313,7 @@ func (s *DesktopServer) hasConsumer() bool {
 	return s.consumer != nil
 }
 
-func (s *DesktopServer) resolve(requestID string, approved bool, from *consumerConn) {
+func (s *DesktopServer) resolve(requestID string, dec desktopDecision, from *consumerConn) {
 	s.mu.Lock()
 	p, ok := s.pending[requestID]
 	// Only the consumer the request was sent to may resolve it; a superseded
@@ -307,7 +326,7 @@ func (s *DesktopServer) resolve(requestID string, approved bool, from *consumerC
 	s.mu.Unlock()
 	if ok {
 		select {
-		case p.ch <- approved:
+		case p.ch <- dec:
 		default:
 		}
 	}
@@ -326,6 +345,7 @@ func (s *DesktopServer) forwardAudit(ctx context.Context, ch <-chan AuditEntry) 
 				V: desktopProtocolVersion, Type: "event", ID: newID(), Ts: entry.Timestamp,
 				Kind: "audit", Server: entry.Server, Shed: entry.Shed, Ns: entry.Namespace, Op: entry.Operation,
 				Result: entry.Result, Detail: entry.Detail, Approval: entry.Approval,
+				DecidedBy: entry.DecidedBy, Scope: entry.Scope, TTL: entry.TTL,
 			}
 			s.mu.Lock()
 			s.ring = append(s.ring, ev)

@@ -60,7 +60,7 @@ func TestAWSHandlerGetCredentials(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
+	handler := NewAWSHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -119,7 +119,7 @@ func TestAWSHandlerPing(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
+	handler := NewAWSHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -176,7 +176,7 @@ func TestAWSHandlerError(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
+	handler := NewAWSHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -230,7 +230,7 @@ func TestAWSHandlerStatus(t *testing.T) {
 	logger := slog.Default()
 	audit := &AuditLogger{logger: logger}
 
-	handler := NewAWSHandler(backend, client, audit, "test-server", logger)
+	handler := NewAWSHandler(backend, client, &noopGate{}, audit, "test-server", logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -251,5 +251,61 @@ func TestAWSHandlerStatus(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for status response")
+	}
+}
+
+// A deny-all gate rejects the credential request before the backend is hit.
+func TestAWSHandlerDeniedByGate(t *testing.T) {
+	backend := &mockAWSBackend{
+		creds: &AWSCachedCredentials{AccessKeyID: "AK", Expiration: time.Now().Add(time.Hour)},
+	}
+	respondCalled := make(chan json.RawMessage, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			req := protocol.AWSCredentialsRequest{Operation: protocol.AWSOpGetCredentials}
+			payload, _ := json.Marshal(req)
+			env := sdk.NewEnvelope(protocol.NamespaceAWSCredentials, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
+			data, _ := json.Marshal(env)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher := w.(http.Flusher)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			<-r.Context().Done()
+		case http.MethodPost:
+			var env sdk.Envelope
+			json.NewDecoder(r.Body).Decode(&env)
+			w.WriteHeader(http.StatusNoContent)
+			respondCalled <- env.Payload
+		}
+	}))
+	defer srv.Close()
+
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
+	logger := slog.Default()
+	audit := &AuditLogger{logger: logger}
+	handler := NewAWSHandler(backend, client, &denyAllGate{}, audit, "test-server", logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go handler.Run(ctx)
+
+	select {
+	case payload := <-respondCalled:
+		var errResp protocol.AWSErrorResponse
+		if err := json.Unmarshal(payload, &errResp); err != nil {
+			t.Fatalf("unmarshal error response: %v", err)
+		}
+		if errResp.Code != protocol.AWSCodeAssumeRoleFailed {
+			t.Errorf("code: got %q, want %q", errResp.Code, protocol.AWSCodeAssumeRoleFailed)
+		}
+		if backend.calls() != 0 {
+			t.Errorf("backend was called %d times, want 0 (denied before vend)", backend.calls())
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for denied response")
 	}
 }

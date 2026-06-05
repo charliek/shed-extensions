@@ -22,6 +22,12 @@ type AuditEntry struct {
 	Result    string `json:"result"`
 	Detail    string `json:"detail,omitempty"`
 	Approval  string `json:"approval"`
+	// Decision detail for gated operations (who decided + the scope/TTL applied),
+	// so the durable file records the full approval outcome even when the decision
+	// was made in shed-desktop. Empty/omitted for non-gated operations.
+	DecidedBy string `json:"decided_by,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	TTL       string `json:"ttl,omitempty"`
 }
 
 // AuditLogger writes JSON lines to the audit log file and fans every entry
@@ -64,12 +70,10 @@ func NewAuditLogger(cfg LogConfig, logger *slog.Logger) *AuditLogger {
 	}
 }
 
-// Log writes an audit entry. Safe for concurrent use. The entry is always
-// published to subscribers (so the desktop activity feed works even when
-// file logging is disabled); the file write is skipped when no file is open.
+// Log writes a basic audit entry (no approval-decision detail). Safe for
+// concurrent use.
 func (a *AuditLogger) Log(server, shed, namespace, operation, result, detail, approval string) {
-	entry := AuditEntry{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	a.LogEntry(AuditEntry{
 		Server:    server,
 		Shed:      shed,
 		Namespace: namespace,
@@ -77,6 +81,17 @@ func (a *AuditLogger) Log(server, shed, namespace, operation, result, detail, ap
 		Result:    result,
 		Detail:    detail,
 		Approval:  approval,
+	})
+}
+
+// LogEntry writes a fully-formed audit entry — used by gated operations to
+// record the approval outcome (decided_by/scope/ttl). The Timestamp is stamped
+// here if unset. The entry is always published to subscribers (so the desktop
+// activity feed works even when file logging is disabled); the file write is
+// skipped when no file is open — the file remains the durable record.
+func (a *AuditLogger) LogEntry(entry AuditEntry) {
+	if entry.Timestamp == "" {
+		entry.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
 
 	a.mu.Lock()

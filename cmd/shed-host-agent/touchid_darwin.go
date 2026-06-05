@@ -44,12 +44,15 @@ import (
 	"unsafe"
 )
 
-// touchIDGate implements ApprovalGate using macOS Touch ID.
+// touchIDGate implements ApprovalGate using native macOS Touch ID — the
+// `biometrics` / `biometrics-or-password` policies, which work with no
+// shed-desktop app running. `scope` (per-request/per-session/per-shed) +
+// `sessionTTL` cache approvals.
 type touchIDGate struct {
-	enabled       bool
-	policy        string
+	scope         string
 	allowPassword bool
 	sessionTTL    time.Duration
+	ttlText       string
 
 	mu            sync.Mutex
 	lastApproval  time.Time
@@ -57,53 +60,51 @@ type touchIDGate struct {
 }
 
 func newApprovalGate(cfg ApprovalConfig) ApprovalGate {
-	if !cfg.Enabled {
-		return &noopGate{}
-	}
-
 	ttl, err := time.ParseDuration(cfg.SessionTTL)
 	if err != nil {
 		ttl = 4 * time.Hour
 	}
 
 	return &touchIDGate{
-		enabled:       true,
-		policy:        cfg.Policy,
-		allowPassword: resolveAllowPassword(cfg.Method),
+		scope:         cfg.Scope,
+		allowPassword: resolveAllowPassword(cfg.Policy),
 		sessionTTL:    ttl,
+		ttlText:       cfg.SessionTTL,
 		shedApprovals: make(map[string]time.Time),
 	}
 }
 
-func (g *touchIDGate) Enabled() bool { return g.enabled }
-
-// Method returns the configured approval method for audit logging.
+// Method returns the policy name for the audit log.
 func (g *touchIDGate) Method() string {
 	if g.allowPassword {
-		return "biometrics-or-password"
+		return PolicyBiometricsOrPassword
 	}
-	return "biometrics"
+	return PolicyBiometrics
 }
 
-func (g *touchIDGate) Approve(server, shedName, reason string) error {
+func (g *touchIDGate) Approve(server, shedName, reason string) (ApprovalOutcome, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	out := ApprovalOutcome{DecidedBy: "touchid", Scope: g.scope, TTL: g.ttlText}
 
 	// Per-shed approvals are keyed by server/shed so identical shed names on
 	// different servers do not share an approval. per-session stays global
 	// (one approval covers the whole agent for the TTL).
 	shedKey := serverShedKey(server, shedName)
 
-	// Check cached approval based on policy
+	// Check cached approval based on scope
 	now := time.Now()
-	switch g.policy {
+	switch g.scope {
 	case "per-session":
 		if !g.lastApproval.IsZero() && now.Sub(g.lastApproval) < g.sessionTTL {
-			return nil
+			out.DecidedBy = "policy" // served from the cached session approval
+			return out, nil
 		}
 	case "per-shed":
 		if t, ok := g.shedApprovals[shedKey]; ok && now.Sub(t) < g.sessionTTL {
-			return nil
+			out.DecidedBy = "policy"
+			return out, nil
 		}
 	case "per-request":
 		// Always prompt
@@ -123,10 +124,10 @@ func (g *touchIDGate) Approve(server, shedName, reason string) error {
 	case 1:
 		g.lastApproval = now
 		g.shedApprovals[shedKey] = now
-		return nil
+		return out, nil
 	case 0:
-		return fmt.Errorf("touch ID authentication denied")
+		return ApprovalOutcome{}, fmt.Errorf("touch ID authentication denied")
 	default:
-		return fmt.Errorf("touch ID not available on this device")
+		return ApprovalOutcome{}, fmt.Errorf("touch ID not available on this device")
 	}
 }
