@@ -1,15 +1,17 @@
 # shed-desktop Approval Channel
 
-`shed-host-agent` can delegate SSH approval decisions to the
+`shed-host-agent` can delegate approval decisions to the
 [shed-desktop](https://github.com/charliek/shed-desktop) menu-bar app over a
-local Unix-domain socket, instead of prompting Touch ID inline. The same socket
-also carries an all-namespace audit/event stream that the app renders as a live
+local Unix-domain socket, instead of approving inline. The same socket also
+carries an all-namespace audit/event stream that the app renders as a live
 activity feed.
 
-This is **disabled by default**. With it off, none of this code path runs and
-behavior is unchanged.
+This is **disabled by default**. With it off, none of this code path runs.
 
 ## Enabling
+
+Set `desktop.enabled: true` and the `approval.policy` of each extension you want
+the app to decide to `shed-desktop`:
 
 ```yaml
 desktop:
@@ -19,20 +21,29 @@ desktop:
 
 ssh:
   approval:
-    method: shed-desktop            # delegate SSH sign approvals to the app
+    policy: shed-desktop            # decide SSH sign approvals in the app
+aws:
+  approval:
+    policy: shed-desktop            # optional: toggle Allow/Deny in the app
+docker:
+  approval:
+    policy: shed-desktop            # optional: toggle Allow/Deny in the app
 ```
 
-Both are required: `desktop.enabled` starts the socket, and
-`ssh.approval.method: shed-desktop` selects the delegating gate. If the method
-is set but the channel is disabled, the agent fails closed (denies every SSH
-sign) rather than silently falling back.
+`desktop.enabled` starts the socket; a `shed-desktop` policy selects the
+delegating gate for that extension. If a policy is `shed-desktop` but the
+channel is disabled (or the app isn't connected), the agent **fails closed** —
+it denies rather than silently falling back.
 
-## Scope (v1)
+## Scope
 
-- **Gated:** only `ssh-agent` `sign` requests block on an app decision.
-- **Stream-only:** `aws-credentials` and `docker-credentials` operations are not
-  gated, but their audit entries are still streamed to the app so the activity
-  feed is complete.
+- **Gated:** any extension whose policy is `shed-desktop`. The agent advertises
+  these in `hello_ack.gate_namespaces` so the app shows the matching approval
+  UI. SSH presents the full interactive card (scope / TTL / always-allow /
+  always-deny); AWS and Docker present a live Allow/Deny toggle.
+- **Stream-only:** every other namespace's audit entries are still streamed to
+  the app so the activity feed is complete, even when that extension is gated
+  natively (Touch ID) or set to approve-all/deny-all.
 
 ## Transport
 
@@ -48,12 +59,16 @@ sign) rather than silently falling back.
 | app → agent | `hello` | `client{name,version,pid}`, `capabilities[]`, `replay_events` |
 | agent → app | `hello_ack` | `agent{version,approval_method}`, `namespaces[]`, `gate_namespaces[]`, `request_timeout_ms`, `accepted` |
 | agent → app | `approval_request` | `id`, `namespace`, `op`, `shed`, `detail`, `expires_at` |
-| app → agent | `approval_response` | `request_id`, `decision` (approve\|deny), `decided_by` |
-| agent → app | `event` | `kind`, `shed`, `ns`, `op`, `result`, `detail`, `approval` (audit superset, all namespaces) |
+| app → agent | `approval_response` | `request_id`, `decision` (approve\|deny), `decided_by`, `scope`, `ttl` |
+| agent → app | `event` | `kind`, `shed`, `ns`, `op`, `result`, `detail`, `approval`, `decided_by`, `scope`, `ttl` (audit superset, all namespaces) |
 | agent → app | `ping` / app → agent `pong` | liveness |
 
 `approval_request.detail` carries only metadata (the key type for SSH). The app
 never sees key material or secrets.
+
+When the app approves, it returns `decided_by` (`user`/`touchid`/`policy`),
+`scope`, and `ttl`; the agent records these in its **durable audit log**, so the
+host-side record is complete regardless of where the decision was made.
 
 ## Fail-closed semantics
 

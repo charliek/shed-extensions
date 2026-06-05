@@ -1,24 +1,38 @@
 package main
 
-// ApprovalGate controls biometric/Touch ID approval for credential operations.
+import "fmt"
+
+// ApprovalOutcome carries audit detail about how a request was approved, for the
+// durable log. The shed-desktop gate populates it from the app's response (who
+// decided + the scope/TTL the app applied); the native Touch ID gate reports
+// its scope; the approve-all/deny-all gates leave it empty.
+type ApprovalOutcome struct {
+	DecidedBy string // "user" | "touchid" | "policy" | "timeout" | ""
+	Scope     string // approval scope applied (e.g. per-session)
+	TTL       string // TTL applied (e.g. 4h)
+}
+
+// ApprovalGate decides whether a credential operation is allowed. Every request
+// goes through a gate — the deny-all default fails closed.
 type ApprovalGate interface {
-	// Enabled returns true if approval is configured and active.
-	Enabled() bool
-
-	// Approve requests user approval for an operation. Returns nil if approved.
-	// server identifies the shed server the request came from; together with
-	// shedName it keys cached per-shed approvals so identical shed names on
-	// different servers do not share an approval.
-	Approve(server, shedName, reason string) error
-
-	// Method returns the configured approval method for audit logging
-	// ("biometrics-or-password", "biometrics", or "none" when disabled).
+	// Approve returns nil if the operation is allowed, an error (→ deny) otherwise.
+	Approve(server, shedName, reason string) (ApprovalOutcome, error)
+	// Method names the policy for the audit log: one of the Policy* constants.
 	Method() string
 }
 
-// noopGate always approves — used when approval is disabled or on non-macOS.
+// noopGate approves every request — the approve-all policy (allowlist/role
+// still applies downstream in the AWS/Docker backends).
 type noopGate struct{}
 
-func (g *noopGate) Enabled() bool                { return false }
-func (g *noopGate) Approve(_, _, _ string) error { return nil }
-func (g *noopGate) Method() string               { return "none" }
+func (g *noopGate) Approve(_, _, _ string) (ApprovalOutcome, error) { return ApprovalOutcome{}, nil }
+func (g *noopGate) Method() string                                  { return PolicyApproveAll }
+
+// denyAllGate rejects every request — the deny-all policy and the safe default
+// (an omitted/empty policy resolves here).
+type denyAllGate struct{}
+
+func (g *denyAllGate) Approve(_, _, _ string) (ApprovalOutcome, error) {
+	return ApprovalOutcome{}, fmt.Errorf("denied: approval policy is deny-all")
+}
+func (g *denyAllGate) Method() string { return PolicyDenyAll }

@@ -36,7 +36,7 @@ func startTestServer(t *testing.T, timeoutMS int) (*DesktopServer, *AuditLogger,
 	sock := shortSocketPath(t)
 	audit := NewAuditLogger(LogConfig{Enabled: false}, testLogger())
 	cfg := DesktopConfig{Enabled: true, SocketPath: sock, TimeoutMS: timeoutMS}
-	s := NewDesktopServer(cfg, audit, "test", testLogger())
+	s := NewDesktopServer(cfg, audit, "test", []string{"ssh-agent", "aws-credentials"}, testLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	go s.Listen(ctx)
 	deadline := time.Now().Add(2 * time.Second)
@@ -105,8 +105,8 @@ func readType(t *testing.T, conn net.Conn, r *bufio.Reader, want string) map[str
 func TestDesktopNoConsumerFailsClosed(t *testing.T) {
 	s, _, cancel, _ := startTestServer(t, 1000)
 	defer cancel()
-	g := &desktopGate{server: s}
-	if err := g.Approve("srv", "stbot", "ssh-ed25519"); err == nil {
+	g := &desktopGate{server: s, namespace: "ssh-agent", op: "sign"}
+	if _, err := g.Approve("srv", "stbot", "ssh-ed25519"); err == nil {
 		t.Fatal("expected deny (error) with no consumer connected")
 	}
 }
@@ -119,8 +119,9 @@ func TestDesktopApprove(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		g := &desktopGate{server: s}
-		done <- g.Approve("srv", "stbot", "ssh-ed25519")
+		g := &desktopGate{server: s, namespace: "ssh-agent", op: "sign"}
+		_, err := g.Approve("srv", "stbot", "ssh-ed25519")
+		done <- err
 	}()
 
 	req := readType(t, conn, r, "approval_request")
@@ -140,7 +141,11 @@ func TestDesktopDeny(t *testing.T) {
 	defer conn.Close()
 
 	done := make(chan error, 1)
-	go func() { g := &desktopGate{server: s}; done <- g.Approve("srv", "stbot", "x") }()
+	go func() {
+		g := &desktopGate{server: s, namespace: "ssh-agent", op: "sign"}
+		_, err := g.Approve("srv", "stbot", "x")
+		done <- err
+	}()
 	req := readType(t, conn, r, "approval_request")
 	respond(t, conn, req["id"].(string), "deny")
 	if err := <-done; err == nil {
@@ -155,7 +160,11 @@ func TestDesktopTimeoutFailsClosed(t *testing.T) {
 	defer conn.Close()
 
 	done := make(chan error, 1)
-	go func() { g := &desktopGate{server: s}; done <- g.Approve("srv", "stbot", "x") }()
+	go func() {
+		g := &desktopGate{server: s, namespace: "ssh-agent", op: "sign"}
+		_, err := g.Approve("srv", "stbot", "x")
+		done <- err
+	}()
 	readType(t, conn, r, "approval_request") // received, but we never respond
 	select {
 	case err := <-done:
@@ -196,7 +205,11 @@ func TestDesktopLastWriterWins(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { g := &desktopGate{server: s}; done <- g.Approve("srv", "stbot", "x") }()
+	go func() {
+		g := &desktopGate{server: s, namespace: "ssh-agent", op: "sign"}
+		_, err := g.Approve("srv", "stbot", "x")
+		done <- err
+	}()
 	req := readType(t, c2, r2, "approval_request") // goes to the active (second) consumer
 	respond(t, c2, req["id"].(string), "approve")
 	if err := <-done; err != nil {
@@ -225,12 +238,67 @@ func TestDesktopConfigDefaults(t *testing.T) {
 	}
 }
 
-func TestSelectApprovalGateMisconfigDenies(t *testing.T) {
+func TestGateForMisconfigDenies(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.SSH.Approval.Method = "shed-desktop"
+	cfg.SSH.Approval.Policy = PolicyShedDesktop
 	// desktop.enabled false → desktop server nil → fail-closed deny gate.
-	g := selectApprovalGate(cfg, nil)
-	if err := g.Approve("srv", "stbot", "x"); err == nil {
-		t.Fatal("misconfigured shed-desktop method should deny")
+	g := gateFor("ssh-agent", "sign", cfg.SSH.Approval, nil)
+	if _, err := g.Approve("srv", "stbot", "x"); err == nil {
+		t.Fatal("misconfigured shed-desktop policy should deny")
+	}
+}
+
+// hello_ack advertises gate_namespaces from the per-provider policies so the app
+// shows the matching approval UI.
+func TestDesktopHelloAckGateNamespaces(t *testing.T) {
+	_, _, cancel, sock := startTestServer(t, 1000)
+	defer cancel()
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte(`{"type":"hello","client":{"name":"t","version":"1","pid":1},"capabilities":[],"replay_events":0}` + "\n")); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	r := bufio.NewReader(conn)
+	ack := readType(t, conn, r, "hello_ack")
+	gn, _ := ack["gate_namespaces"].([]any)
+	if len(gn) != 2 || gn[0] != "ssh-agent" || gn[1] != "aws-credentials" {
+		t.Fatalf("gate_namespaces = %v, want [ssh-agent aws-credentials]", ack["gate_namespaces"])
+	}
+}
+
+// A shed-desktop decision's scope/ttl/decided_by reach the durable audit log.
+func TestDesktopDecisionDetailAudited(t *testing.T) {
+	s, _, cancel, sock := startTestServer(t, 5000)
+	defer cancel()
+	conn, r := dialHello(t, s, sock)
+	defer conn.Close()
+
+	type res struct {
+		out ApprovalOutcome
+		err error
+	}
+	done := make(chan res, 1)
+	go func() {
+		g := &desktopGate{server: s, namespace: "ssh-agent", op: "sign"}
+		out, err := g.Approve("srv", "stbot", "x")
+		done <- res{out, err}
+	}()
+	req := readType(t, conn, r, "approval_request")
+	msg, _ := json.Marshal(map[string]any{
+		"type": "approval_response", "request_id": req["id"].(string),
+		"decision": "approve", "decided_by": "user", "scope": "per-session", "ttl": "4h",
+	})
+	if _, err := conn.Write(append(msg, '\n')); err != nil {
+		t.Fatalf("respond: %v", err)
+	}
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("approve should succeed: %v", got.err)
+	}
+	if got.out.DecidedBy != "user" || got.out.Scope != "per-session" || got.out.TTL != "4h" {
+		t.Fatalf("outcome = %+v, want decided_by=user scope=per-session ttl=4h", got.out)
 	}
 }

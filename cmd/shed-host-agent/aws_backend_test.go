@@ -21,6 +21,13 @@ func (m *mockAWSBackend) Status(_, _ string) (string, *time.Time) {
 	return "arn:aws:iam::123:role/mock", nil
 }
 
+// calls reports how many times GetCredentials was invoked (race-safe).
+func (m *mockAWSBackend) calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.callLog)
+}
+
 func (m *mockAWSBackend) GetCredentials(_ context.Context, server, shedName string) (*AWSCachedCredentials, error) {
 	m.mu.Lock()
 	m.callLog = append(m.callLog, server+"/"+shedName)

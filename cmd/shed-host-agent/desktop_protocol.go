@@ -12,7 +12,7 @@ import (
 //   app → agent:  hello, approval_response, pong
 //   agent → app:  hello_ack, approval_request, event, ping
 
-const desktopProtocolVersion = 1
+const desktopProtocolVersion = 2
 
 type agentInfo struct {
 	Version        string `json:"version"`
@@ -39,6 +39,10 @@ type approvalResponseMsg struct {
 	RequestID string `json:"request_id"`
 	Decision  string `json:"decision"`
 	DecidedBy string `json:"decided_by"`
+	// Scope/TTL describe how the app decided (e.g. per-session, 4h) — recorded
+	// in the durable audit log. Empty for a one-off per-request decision.
+	Scope string `json:"scope,omitempty"`
+	TTL   string `json:"ttl,omitempty"`
 }
 
 // outbound (agent → app)
@@ -70,18 +74,21 @@ type approvalRequestMsg struct {
 }
 
 type eventMsg struct {
-	V        int    `json:"v"`
-	Type     string `json:"type"`
-	ID       string `json:"id"`
-	Ts       string `json:"ts"`
-	Kind     string `json:"kind"`
-	Server   string `json:"server,omitempty"`
-	Shed     string `json:"shed,omitempty"`
-	Ns       string `json:"ns,omitempty"`
-	Op       string `json:"op,omitempty"`
-	Result   string `json:"result"`
-	Detail   string `json:"detail,omitempty"`
-	Approval string `json:"approval,omitempty"`
+	V         int    `json:"v"`
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Ts        string `json:"ts"`
+	Kind      string `json:"kind"`
+	Server    string `json:"server,omitempty"`
+	Shed      string `json:"shed,omitempty"`
+	Ns        string `json:"ns,omitempty"`
+	Op        string `json:"op,omitempty"`
+	Result    string `json:"result"`
+	Detail    string `json:"detail,omitempty"`
+	Approval  string `json:"approval,omitempty"`
+	DecidedBy string `json:"decided_by,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	TTL       string `json:"ttl,omitempty"`
 }
 
 type pingMsg struct {

@@ -28,3 +28,4 @@ uv.lock
 *.p12
 *.token
 *.credentials
+/shed-host-agent

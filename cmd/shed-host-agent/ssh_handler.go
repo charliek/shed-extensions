@@ -111,17 +111,15 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 		return
 	}
 
-	// Touch ID approval gate
-	approvalResult := "none"
-	if h.approval.Enabled() {
-		if err := h.approval.Approve(h.server, shedName, "SSH sign request"); err != nil {
-			h.logger.Info("sign denied by approval gate", "shed", shedName, "error", err)
-			h.sendError(ctx, env, "approval denied", protocol.SSHCodeSignFailed)
-			h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "denied", "", h.approval.Method())
-			return
-		}
-		approvalResult = h.approval.Method()
+	// Approval gate (deny-all default fails closed).
+	outcome, err := h.approval.Approve(h.server, shedName, "SSH sign request")
+	if err != nil {
+		h.logger.Info("sign denied by approval gate", "shed", shedName, "error", err)
+		h.sendError(ctx, env, "approval denied", protocol.SSHCodeSignFailed)
+		h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "denied", "", h.approval.Method())
+		return
 	}
+	approvalResult := h.approval.Method()
 
 	// Decode the public key
 	pubKeyBytes, err := base64.StdEncoding.DecodeString(req.PublicKey)
@@ -155,7 +153,11 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 		Blob:   base64.StdEncoding.EncodeToString(sig.Blob),
 	}
 	h.sendResponse(ctx, env, resp)
-	h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "ok", pubKey.Type(), approvalResult)
+	h.audit.LogEntry(AuditEntry{
+		Server: h.server, Shed: shedName, Namespace: protocol.NamespaceSSHAgent, Operation: protocol.SSHOpSign,
+		Result: "ok", Detail: pubKey.Type(), Approval: approvalResult,
+		DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
+	})
 	h.logger.Debug("sign completed", "key_type", pubKey.Type(), "shed", shedName)
 }
 

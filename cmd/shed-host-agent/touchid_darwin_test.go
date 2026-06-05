@@ -5,22 +5,21 @@ package main
 import "testing"
 
 // TestNewApprovalGateResolvesPolicy verifies that newApprovalGate maps the
-// configured method to the right LocalAuthentication policy. It must NOT call
+// biometric policy to the right LocalAuthentication fallback. It must NOT call
 // Approve — that would trigger a real macOS authentication prompt and block.
 func TestNewApprovalGateResolvesPolicy(t *testing.T) {
 	tests := []struct {
 		name              string
-		method            string
+		policy            string
 		wantAllowPassword bool
 		wantMethod        string
 	}{
-		{"strict", "biometrics", false, "biometrics"},
-		{"fallback", "biometrics-or-password", true, "biometrics-or-password"},
-		{"empty defaults to fallback", "", true, "biometrics-or-password"},
+		{"strict", PolicyBiometrics, false, PolicyBiometrics},
+		{"fallback", PolicyBiometricsOrPassword, true, PolicyBiometricsOrPassword},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gate := newApprovalGate(ApprovalConfig{Enabled: true, Method: tt.method})
+			gate := newApprovalGate(ApprovalConfig{Policy: tt.policy, Scope: "per-session", SessionTTL: "1h"})
 			g, ok := gate.(*touchIDGate)
 			if !ok {
 				t.Fatalf("newApprovalGate returned %T, want *touchIDGate", gate)
@@ -31,13 +30,9 @@ func TestNewApprovalGateResolvesPolicy(t *testing.T) {
 			if got := g.Method(); got != tt.wantMethod {
 				t.Errorf("Method() = %q, want %q", got, tt.wantMethod)
 			}
+			if g.scope != "per-session" {
+				t.Errorf("scope = %q, want per-session", g.scope)
+			}
 		})
-	}
-}
-
-func TestNewApprovalGateDisabled(t *testing.T) {
-	gate := newApprovalGate(ApprovalConfig{Enabled: false, Method: "biometrics"})
-	if _, ok := gate.(*noopGate); !ok {
-		t.Fatalf("newApprovalGate(disabled) returned %T, want *noopGate", gate)
 	}
 }

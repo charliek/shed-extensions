@@ -47,9 +47,9 @@ The host agent controls which registries are available to VMs via an allowlist:
 ```yaml
 docker:
   registries:
-    - us-docker.pkg.dev
+    - docker.io
     - ghcr.io
-    - artifactory.corp.com
+    - registry.acmeco.com
 ```
 
 Or allow all registries:

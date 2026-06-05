@@ -11,12 +11,14 @@ import (
 // SharedDeps are the server-agnostic components shared by every per-server
 // watcher group. Built once in main and injected into each group.
 type SharedDeps struct {
-	SSHBackend    SSHBackend
-	AWSBackend    AWSBackend    // may be nil when AWS is not configured
-	DockerBackend DockerBackend // may be nil when Docker is not configured
-	Approval      ApprovalGate
-	Audit         *AuditLogger
-	Logger        *slog.Logger
+	SSHBackend     SSHBackend
+	AWSBackend     AWSBackend    // may be nil when AWS is not configured
+	DockerBackend  DockerBackend // may be nil when Docker is not configured
+	SSHApproval    ApprovalGate
+	AWSApproval    ApprovalGate
+	DockerApproval ApprovalGate
+	Audit          *AuditLogger
+	Logger         *slog.Logger
 }
 
 // watcherGroup owns the per-server HostClient and handler goroutines for one
@@ -50,12 +52,12 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 		}()
 	}
 
-	run(NewSSHHandler(deps.SSHBackend, client, deps.Approval, deps.Audit, t.Name, log).Run)
+	run(NewSSHHandler(deps.SSHBackend, client, deps.SSHApproval, deps.Audit, t.Name, log).Run)
 	if deps.AWSBackend != nil {
-		run(NewAWSHandler(deps.AWSBackend, client, deps.Audit, t.Name, log).Run)
+		run(NewAWSHandler(deps.AWSBackend, client, deps.AWSApproval, deps.Audit, t.Name, log).Run)
 	}
 	if deps.DockerBackend != nil {
-		run(NewDockerHandler(deps.DockerBackend, client, deps.Audit, t.Name, log).Run)
+		run(NewDockerHandler(deps.DockerBackend, client, deps.DockerApproval, deps.Audit, t.Name, log).Run)
 	}
 
 	done := make(chan struct{})
