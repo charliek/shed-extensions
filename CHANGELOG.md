@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.3.5
+
+### Breaking changes
+
+- **Per-provider `approval.policy`.** Each credential extension (`ssh`, `aws`,
+  `docker`) now takes a single required `approval.policy`: `deny-all` (default,
+  fail-closed) | `approve-all` | `shed-desktop`, plus SSH-only native Touch ID
+  `biometrics` | `biometrics-or-password`. This **replaces**
+  `ssh.approval.{enabled,method,session_ttl}` and renames the old
+  `ssh.approval.policy` (per-request/per-session/per-shed) to
+  `ssh.approval.scope`. There is **no migration**: update `extensions.yaml`.
+  An omitted/empty policy means `deny-all`, so AWS and Docker now need an
+  explicit `approval.policy` (e.g. `approve-all`) to vend credentials.
+  ([#22](https://github.com/charliek/shed-extensions/pull/22))
+
+### Features
+
+- **AWS + Docker approval gating.** AWS credential vending and Docker registry
+  credential requests now pass through the same approval gate as SSH — including
+  `shed-desktop` delegation (a live Allow/Deny decided in the app), failing
+  closed when the app isn't connected. `hello_ack.gate_namespaces` advertises
+  which extensions are delegated (desktop protocol bumped to v2).
+- **Complete decision audit.** The durable audit log records `decided_by`,
+  `scope`, and `ttl` for every gated operation — approved, denied, and
+  backend-error paths — even when the decision is made in shed-desktop.
+
+### Notes
+
+- The shipped default `extensions.yaml` gates SSH with Touch ID
+  (`biometrics-or-password`, 1h), brokers Docker Hub + GitHub registries
+  (`approve-all`), and leaves AWS `deny-all` until a role is set; shed-desktop
+  delegation is documented but off by default.
+
 ## v0.3.4
 
 ### Features
