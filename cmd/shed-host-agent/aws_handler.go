@@ -79,7 +79,11 @@ func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *sdk.Envelope
 	if err != nil {
 		h.logger.Info("aws credentials denied by approval gate", "shed", shedName, "error", err)
 		h.sendError(ctx, env, "approval denied", protocol.AWSCodeAssumeRoleFailed)
-		h.audit.Log(h.server, shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "denied", "", h.approval.Method())
+		h.audit.LogEntry(AuditEntry{
+			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceAWSCredentials, Operation: protocol.AWSOpGetCredentials,
+			Result: "denied", Approval: h.approval.Method(),
+			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
+		})
 		return
 	}
 
@@ -87,7 +91,11 @@ func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *sdk.Envelope
 	if err != nil {
 		h.logger.Error("get credentials failed", "error", err, "server", h.server, "shed", shedName)
 		h.sendError(ctx, env, "credential request failed", protocol.AWSCodeAssumeRoleFailed)
-		h.audit.Log(h.server, shedName, protocol.NamespaceAWSCredentials, protocol.AWSOpGetCredentials, "error", err.Error(), h.approval.Method())
+		h.audit.LogEntry(AuditEntry{
+			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceAWSCredentials, Operation: protocol.AWSOpGetCredentials,
+			Result: "error", Detail: err.Error(), Approval: h.approval.Method(),
+			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
+		})
 		return
 	}
 

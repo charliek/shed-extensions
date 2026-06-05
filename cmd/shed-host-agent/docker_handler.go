@@ -88,7 +88,11 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 	if err != nil {
 		h.logger.Info("docker credentials denied by approval gate", "shed", shedName, "registry", req.ServerURL, "error", err)
 		h.sendError(ctx, env, "approval denied", protocol.DockerCodeNotAllowed)
-		h.audit.Log(h.server, shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "denied", req.ServerURL, h.approval.Method())
+		h.audit.LogEntry(AuditEntry{
+			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceDockerCredentials, Operation: protocol.DockerOpGet,
+			Result: "denied", Detail: req.ServerURL, Approval: h.approval.Method(),
+			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
+		})
 		return
 	}
 
@@ -102,7 +106,11 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 		}
 		// Send a generic message to the guest; the full error is logged host-side above
 		h.sendError(ctx, env, "credential request failed", code)
-		h.audit.Log(h.server, shedName, protocol.NamespaceDockerCredentials, protocol.DockerOpGet, "error", req.ServerURL, h.approval.Method())
+		h.audit.LogEntry(AuditEntry{
+			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceDockerCredentials, Operation: protocol.DockerOpGet,
+			Result: "error", Detail: req.ServerURL, Approval: h.approval.Method(),
+			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
+		})
 		return
 	}
 

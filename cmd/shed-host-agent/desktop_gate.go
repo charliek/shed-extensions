@@ -21,14 +21,18 @@ func (g *desktopGate) Approve(server, shedName, reason string) (ApprovalOutcome,
 	dec, err := g.server.RequestApproval(
 		context.Background(), g.namespace, g.op, server, shedName, reason)
 	if err != nil {
+		// No decision was made (no app connected, timeout, transport error).
 		return ApprovalOutcome{}, fmt.Errorf("shed-desktop approval: %w", err)
-	}
-	if !dec.approved {
-		return ApprovalOutcome{}, fmt.Errorf("approval denied by shed-desktop")
 	}
 	decidedBy := dec.decidedBy
 	if decidedBy == "" {
 		decidedBy = "user"
 	}
-	return ApprovalOutcome{DecidedBy: decidedBy, Scope: dec.scope, TTL: dec.ttl}, nil
+	// Return the outcome on BOTH approve and deny so a denied decision is
+	// audited with its decided_by/scope/ttl too.
+	out := ApprovalOutcome{DecidedBy: decidedBy, Scope: dec.scope, TTL: dec.ttl}
+	if !dec.approved {
+		return out, fmt.Errorf("approval denied by shed-desktop")
+	}
+	return out, nil
 }

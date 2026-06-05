@@ -140,16 +140,25 @@ func TestDesktopDeny(t *testing.T) {
 	conn, r := dialHello(t, s, sock)
 	defer conn.Close()
 
-	done := make(chan error, 1)
+	type res struct {
+		out ApprovalOutcome
+		err error
+	}
+	done := make(chan res, 1)
 	go func() {
 		g := &desktopGate{server: s, namespace: "ssh-agent", op: "sign"}
-		_, err := g.Approve("srv", "stbot", "x")
-		done <- err
+		out, err := g.Approve("srv", "stbot", "x")
+		done <- res{out, err}
 	}()
 	req := readType(t, conn, r, "approval_request")
 	respond(t, conn, req["id"].(string), "deny")
-	if err := <-done; err == nil {
+	got := <-done
+	if got.err == nil {
 		t.Fatal("deny should return an error")
+	}
+	// A denied decision still carries decided_by so the denial is fully audited.
+	if got.out.DecidedBy != "user" {
+		t.Errorf("denied outcome decided_by = %q, want user", got.out.DecidedBy)
 	}
 }
 

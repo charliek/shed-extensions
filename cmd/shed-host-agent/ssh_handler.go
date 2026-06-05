@@ -116,7 +116,11 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 	if err != nil {
 		h.logger.Info("sign denied by approval gate", "shed", shedName, "error", err)
 		h.sendError(ctx, env, "approval denied", protocol.SSHCodeSignFailed)
-		h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "denied", "", h.approval.Method())
+		h.audit.LogEntry(AuditEntry{
+			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceSSHAgent, Operation: protocol.SSHOpSign,
+			Result: "denied", Approval: h.approval.Method(),
+			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
+		})
 		return
 	}
 	approvalResult := h.approval.Method()
@@ -144,7 +148,11 @@ func (h *SSHHandler) handleSign(ctx context.Context, env *sdk.Envelope, shedName
 	if err != nil {
 		h.logger.Error("sign failed", "error", err, "shed", shedName)
 		h.sendError(ctx, env, "sign operation failed", protocol.SSHCodeSignFailed)
-		h.audit.Log(h.server, shedName, protocol.NamespaceSSHAgent, protocol.SSHOpSign, "error", pubKey.Type(), approvalResult)
+		h.audit.LogEntry(AuditEntry{
+			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceSSHAgent, Operation: protocol.SSHOpSign,
+			Result: "error", Detail: pubKey.Type(), Approval: approvalResult,
+			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
+		})
 		return
 	}
 
