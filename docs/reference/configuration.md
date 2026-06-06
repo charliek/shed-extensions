@@ -226,9 +226,18 @@ It reports:
   `stale` (a leftover socket file with nothing accepting), or `disabled`;
 - each **watched server**: reachable or not, and which credential namespaces are registered.
 
-It is an *environment* probe: it shows what each server has registered, not yet whether *this*
-agent is the registrant. (This is the host-side counterpart to the in-VM
-[`shed-ext status`](status-cli.md), which checks connectivity from inside a shed.)
+It is an *environment* probe: it shows what each server has registered, not whether *this* agent is
+the registrant. For the running daemon's **own** view — per-server, per-namespace `connected` /
+`reconnecting` (with the failure reason) — add `--live`, which queries the agent over a read-only
+status socket:
+
+```bash
+shed-host-agent status --live          # the running agent's live connection state
+shed-host-agent status --live --json
+```
+
+(`status` is the host-side counterpart to the in-VM [`shed-ext status`](status-cli.md), which
+checks connectivity from inside a shed.)
 
 ## CLI Flags
 
@@ -239,7 +248,8 @@ agent is the registrant. (This is the host-side counterpart to the in-VM
 | `--config` | `~/.config/shed/extensions.yaml` | Path to config file |
 | `--log-file` | `""` (stderr) | Write the operational log to this file, size-capped + rotated (the brew service sets it; empty logs to stderr) |
 | `version` | — | Print version and exit |
-| `status [--json]` | — | Print a host-side health report and exit (see [Diagnostics](#diagnostics)) |
+| `status [--json]` | — | Print a host-side environment health report and exit (see [Diagnostics](#diagnostics)) |
+| `status --live [--json]` | — | Query the running daemon's live per-server connection state and exit |
 
 ### shed-ext-ssh-agent
 

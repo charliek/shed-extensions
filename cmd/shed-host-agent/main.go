@@ -54,11 +54,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, "status: load config:", err)
 			os.Exit(1)
 		}
-		jsonOut := false
+		jsonOut, live := false, false
 		for _, a := range flag.Args()[1:] {
-			if a == "--json" || a == "-json" {
+			switch a {
+			case "--json", "-json":
 				jsonOut = true
+			case "--live", "-live":
+				live = true
 			}
+		}
+		if live {
+			os.Exit(runStatusLive(cfg, jsonOut, os.Stdout))
 		}
 		os.Exit(runStatus(cfg, jsonOut, os.Stdout))
 	}
@@ -157,6 +163,15 @@ func main() {
 		Logger:         logger,
 	}
 	sup := NewSupervisor(ctx, deps)
+
+	// Serve the read-only status socket so `shed-host-agent status --live` can
+	// query this daemon's live per-server connection state.
+	statusSock := statusSocketPath(cfg)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		serveStatusSocket(ctx, statusSock, func() LiveStatus { return buildLiveStatus(sup, version.FullInfo()) }, logger)
+	}()
 
 	if cfg.Discovery != nil && cfg.Server != "" && cfg.Server != "http://localhost:8080" {
 		logger.Warn("`server:` is ignored when `discovery:` is configured", "server", cfg.Server)

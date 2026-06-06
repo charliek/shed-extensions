@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/charliek/shed-extensions/internal/protocol"
+	sdk "github.com/charliek/shed/sdk"
 )
 
 // statusReport is the agent's self-reported configuration + live reachability,
@@ -227,11 +229,7 @@ func renderStatus(out io.Writer, r statusReport) {
 			mark = "ok"
 			detail = "listeners: " + listOrNone(s.Listeners)
 		}
-		name := s.Name
-		if name == "" {
-			name = "(default)"
-		}
-		fmt.Fprintf(stw, "  %s\t%s\t%s\t%s\n", mark, name, s.URL, detail)
+		fmt.Fprintf(stw, "  %s\t%s\t%s\t%s\n", mark, serverLabel(s.Name), s.URL, detail)
 	}
 	stw.Flush()
 }
@@ -241,4 +239,79 @@ func listOrNone(ns []string) string {
 		return "none"
 	}
 	return strings.Join(ns, ", ")
+}
+
+func serverLabel(name string) string {
+	if name == "" {
+		return "(default)"
+	}
+	return name
+}
+
+// runStatusLive queries the running daemon's read-only status socket for its
+// authoritative per-(server, namespace) connection state and prints it. Unlike
+// the env-probe, this reflects whether THIS agent is connected (vs. retrying).
+func runStatusLive(cfg Config, jsonOut bool, out io.Writer) int {
+	conn, err := net.DialTimeout("unix", statusSocketPath(cfg), 2*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "status --live: the agent isn't serving live status "+
+			"(not running, or an older build): %v\n", err)
+		return 1
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+	var ls LiveStatus
+	if err := json.NewDecoder(conn).Decode(&ls); err != nil {
+		fmt.Fprintf(os.Stderr, "status --live: reading from the agent: %v\n", err)
+		return 1
+	}
+	if jsonOut {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(ls); err != nil {
+			fmt.Fprintln(os.Stderr, "status --live: encode:", err)
+			return 1
+		}
+		return 0
+	}
+	renderLiveStatus(out, ls)
+	return 0
+}
+
+// renderLiveStatus writes the human-readable live report.
+func renderLiveStatus(out io.Writer, ls LiveStatus) {
+	fmt.Fprintf(out, "shed-host-agent live status (pid %d, %s)\n", ls.Pid, ls.Version)
+	fmt.Fprintf(out, "snapshot: %s\n\n", ls.WrittenAt)
+	if len(ls.Servers) == 0 {
+		fmt.Fprintln(out, "No servers being watched.")
+		return
+	}
+	for _, sv := range ls.Servers {
+		fmt.Fprintf(out, "%s  (%s)\n", serverLabel(sv.Name), sv.URL)
+		if len(sv.Namespaces) == 0 {
+			fmt.Fprintln(out, "  (no subscriptions yet)")
+			continue
+		}
+		tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+		for _, ns := range sv.Namespaces {
+			detail := ns.State
+			if ns.LastError != "" {
+				detail += ": " + ns.LastError
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\n", connMark(ns.State), ns.Namespace, detail)
+		}
+		tw.Flush()
+	}
+}
+
+func connMark(state string) string {
+	switch state {
+	case sdk.ConnConnected:
+		return "ok"
+	case sdk.ConnStopped:
+		return "-"
+	default:
+		return "x"
+	}
 }
