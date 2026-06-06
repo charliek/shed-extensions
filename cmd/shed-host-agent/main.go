@@ -8,6 +8,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -36,6 +37,7 @@ func desktopGateNamespaces(cfg Config) []string {
 
 func main() {
 	configPath := flag.String("config", "~/.config/shed/extensions.yaml", "Path to config file")
+	logFile := flag.String("log-file", "", "Write the operational log to this file (rotated); empty = stderr")
 	flag.Parse()
 
 	// Handle version subcommand
@@ -61,7 +63,11 @@ func main() {
 		os.Exit(runStatus(cfg, jsonOut, os.Stdout))
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logWriter := newLogWriter(*logFile)
+	if c, ok := logWriter.(io.Closer); ok {
+		defer c.Close()
+	}
+	logger := slog.New(slog.NewTextHandler(logWriter, nil))
 	slog.SetDefault(logger)
 
 	logger.Info("starting shed-host-agent", "version", version.FullInfo())

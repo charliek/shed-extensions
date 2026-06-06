@@ -237,6 +237,7 @@ agent is the registrant. (This is the host-side counterpart to the in-VM
 | Flag / Subcommand | Default | Description |
 |------|---------|-------------|
 | `--config` | `~/.config/shed/extensions.yaml` | Path to config file |
+| `--log-file` | `""` (stderr) | Write the operational log to this file, size-capped + rotated (the brew service sets it; empty logs to stderr) |
 | `version` | — | Print version and exit |
 | `status [--json]` | — | Print a host-side health report and exit (see [Diagnostics](#diagnostics)) |
 
