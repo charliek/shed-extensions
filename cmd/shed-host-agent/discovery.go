@@ -25,6 +25,23 @@ type shedServerEntry struct {
 // defaultShedHTTPPort matches shed's default server HTTP port.
 const defaultShedHTTPPort = 8080
 
+// resolveTargets computes the desired server set to broker for: in discovery
+// mode it reads + filters the discovery source; otherwise the single legacy
+// server. The error is non-nil only on a discovery read failure (callers decide
+// whether to keep current servers or proceed best-effort). Shared by the daemon
+// reconcile loop and the `status` subcommand so they never disagree.
+func resolveTargets(cfg Config) ([]ServerTarget, error) {
+	var discovered []ServerTarget
+	if cfg.Discovery != nil {
+		d, err := LoadDiscoveredServers(cfg.Discovery.Source)
+		if err != nil {
+			return nil, err
+		}
+		discovered = d
+	}
+	return cfg.ResolveTargets(discovered), nil
+}
+
 // LoadDiscoveredServers reads the shed CLI config at path and returns one
 // ServerTarget per registered server, sorted by name for deterministic
 // ordering. A missing file is not an error — it yields an empty slice so the
