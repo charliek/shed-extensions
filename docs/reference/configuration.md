@@ -206,13 +206,39 @@ None. The opinionated base image configures everything:
 - `shed-ext-ssh-agent` and `shed-ext-aws-credentials` start via systemd at boot
 - `docker-credential-shed` available on PATH; `~/.docker/config.json` configured with `"credsStore": "shed"`
 
+## Diagnostics
+
+### `shed-host-agent status`
+
+A one-shot, host-side health probe — run it on the Mac to see how the agent is
+configured and what it can currently reach, without grepping the log:
+
+```bash
+shed-host-agent status              # human-readable
+shed-host-agent status --json       # machine-readable
+```
+
+It reports:
+
+- the **effective approval policy** per provider, and which are delegated to shed-desktop;
+- the **desktop approval channel**: whether it's enabled and the state of its Unix socket —
+  `listening`, `missing` (the socket isn't being served — relaunch/kickstart the agent),
+  `stale` (a leftover socket file with nothing accepting), or `disabled`;
+- each **watched server**: reachable or not, and which credential namespaces are registered.
+
+It is an *environment* probe: it shows what each server has registered, not yet whether *this*
+agent is the registrant. (This is the host-side counterpart to the in-VM
+[`shed-ext status`](status-cli.md), which checks connectivity from inside a shed.)
+
 ## CLI Flags
 
 ### shed-host-agent
 
-| Flag | Default | Description |
+| Flag / Subcommand | Default | Description |
 |------|---------|-------------|
 | `--config` | `~/.config/shed/extensions.yaml` | Path to config file |
+| `version` | — | Print version and exit |
+| `status [--json]` | — | Print a host-side health report and exit (see [Diagnostics](#diagnostics)) |
 
 ### shed-ext-ssh-agent
 

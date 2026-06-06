@@ -44,6 +44,23 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle status subcommand: a one-shot environment probe (config + desktop
+	// socket + per-server reachability), separate from running the daemon.
+	if flag.NArg() > 0 && flag.Arg(0) == "status" {
+		cfg, err := LoadConfig(*configPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "status: load config:", err)
+			os.Exit(1)
+		}
+		jsonOut := false
+		for _, a := range flag.Args()[1:] {
+			if a == "--json" || a == "-json" {
+				jsonOut = true
+			}
+		}
+		os.Exit(runStatus(cfg, jsonOut, os.Stdout))
+	}
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 
@@ -142,19 +159,16 @@ func main() {
 	// computeDesired resolves the set of servers to broker for. The bool is
 	// false only on a discovery read error, in which case the caller skips the
 	// reconcile and keeps the current servers (rather than tearing them all
-	// down on a transient/partial-write read).
+	// down on a transient/partial-write read). Shares resolveTargets with
+	// `status` so the two never disagree about which servers are watched.
 	computeDesired := func() ([]ServerTarget, bool) {
-		var discovered []ServerTarget
-		if cfg.Discovery != nil {
-			d, err := LoadDiscoveredServers(cfg.Discovery.Source)
-			if err != nil {
-				logger.Warn("discovery read failed; keeping current servers",
-					"source", cfg.Discovery.Source, "error", err)
-				return nil, false
-			}
-			discovered = d
+		targets, err := resolveTargets(cfg)
+		if err != nil {
+			logger.Warn("discovery read failed; keeping current servers",
+				"source", cfg.Discovery.Source, "error", err)
+			return nil, false
 		}
-		return cfg.ResolveTargets(discovered), true
+		return targets, true
 	}
 	reconcile := func() {
 		if desired, ok := computeDesired(); ok {
