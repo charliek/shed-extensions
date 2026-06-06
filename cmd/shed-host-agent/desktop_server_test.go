@@ -102,6 +102,60 @@ func readType(t *testing.T, conn net.Conn, r *bufio.Reader, want string) map[str
 	}
 }
 
+func TestPrepareSocketPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Missing path → no-op.
+	if err := prepareSocketPath(filepath.Join(dir, "nope.sock")); err != nil {
+		t.Fatalf("missing path: %v", err)
+	}
+
+	// A non-socket file is refused and left intact (never delete an unrelated file).
+	reg := filepath.Join(dir, "file")
+	if err := os.WriteFile(reg, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareSocketPath(reg); err == nil {
+		t.Fatal("expected refusal for a non-socket file")
+	}
+	if _, err := os.Stat(reg); err != nil {
+		t.Fatalf("non-socket file must be left intact: %v", err)
+	}
+
+	// A stale socket (file present, nothing accepting) is removed so we can bind.
+	stale := filepath.Join(dir, "stale.sock")
+	sln, err := net.ListenUnix("unix", &net.UnixAddr{Name: stale, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sln.SetUnlinkOnClose(false) // leave the file behind → genuinely stale
+	_ = sln.Close()
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("precondition: stale socket file should exist: %v", err)
+	}
+	if err := prepareSocketPath(stale); err != nil {
+		t.Fatalf("stale socket should be removable: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("stale socket should have been removed")
+	}
+
+	// A LIVE socket (another agent accepting) is refused and left intact — the
+	// regression: clobbering it would orphan the running agent's listener.
+	live := filepath.Join(dir, "live.sock")
+	lln, err := net.Listen("unix", live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lln.Close()
+	if err := prepareSocketPath(live); err == nil {
+		t.Fatal("expected refusal for a live socket")
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("live socket must be left intact: %v", err)
+	}
+}
+
 func TestDesktopNoConsumerFailsClosed(t *testing.T) {
 	s, _, cancel, _ := startTestServer(t, 1000)
 	defer cancel()

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"sort"
@@ -145,14 +144,11 @@ func desktopSocketState(d DesktopConfig) desktopStatus {
 		st.State = "not-a-socket"
 		return st
 	}
-	conn, err := net.DialTimeout("unix", d.SocketPath, 2*time.Second)
-	if err != nil {
-		st.State = "stale"
-		st.Detail = err.Error()
-		return st
+	if socketIsLive(d.SocketPath) {
+		st.State = "listening"
+	} else {
+		st.State = "stale" // a leftover socket file with nothing accepting
 	}
-	_ = conn.Close()
-	st.State = "listening"
 	return st
 }
 

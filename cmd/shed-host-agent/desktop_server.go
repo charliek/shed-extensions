@@ -18,9 +18,29 @@ import (
 
 const maxFrameBytes = 1 << 20 // 1 MiB per-line cap on inbound frames
 
-// removeStaleSocket removes the path only if it exists AND is a Unix socket,
-// so a misconfigured socket_path can never delete an unrelated file.
-func removeStaleSocket(path string) error {
+// socketProbeTimeout bounds the "is this socket live?" dial. A live local agent
+// accepts in well under this; a stale leftover file fails fast (ECONNREFUSED).
+const socketProbeTimeout = 500 * time.Millisecond
+
+// socketIsLive reports whether a Unix socket at path currently has a process
+// accepting connections (vs. a stale leftover file from an unclean exit).
+func socketIsLive(path string) bool {
+	conn, err := net.DialTimeout("unix", path, socketProbeTimeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// prepareSocketPath makes path bindable for a fresh listener. It errors when the
+// path is a non-socket file (a misconfigured path must never delete an unrelated
+// file) or when another process is still accepting on it — clobbering a live
+// socket would silently break the running agent: its listener keeps the
+// now-deleted inode and never recreates the file, so a connected shed-desktop
+// can't reconnect. A truly stale socket (nothing accepting) is removed so a
+// fresh agent can bind.
+func prepareSocketPath(path string) error {
 	fi, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -30,6 +50,9 @@ func removeStaleSocket(path string) error {
 	}
 	if fi.Mode()&os.ModeSocket == 0 {
 		return fmt.Errorf("path exists but is not a socket: %s", path)
+	}
+	if socketIsLive(path) {
+		return fmt.Errorf("socket already in use by another process: %s", path)
 	}
 	return os.Remove(path)
 }
@@ -123,9 +146,10 @@ func (s *DesktopServer) Listen(ctx context.Context) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		s.logger.Warn("desktop: could not restrict socket dir perms", "dir", dir, "error", err)
 	}
-	// Clear a stale socket from a prior run — but only if it's actually a
-	// socket, so a misconfigured path can never delete an unrelated file.
-	if err := removeStaleSocket(s.cfg.SocketPath); err != nil {
+	// Prepare the path: remove a stale socket from a prior run, but refuse to
+	// bind over a live one (another agent) or a non-socket file — clobbering a
+	// live socket would orphan the other agent's listener.
+	if err := prepareSocketPath(s.cfg.SocketPath); err != nil {
 		s.logger.Error("desktop: refusing to bind", "path", s.cfg.SocketPath, "error", err)
 		return
 	}
@@ -145,8 +169,10 @@ func (s *DesktopServer) Listen(ctx context.Context) {
 
 	go func() {
 		<-ctx.Done()
+		// Closing the UnixListener unlinks our own socket file. Don't probe and
+		// remove by path here — that's bind-time's job, and on shutdown it could
+		// race a replacement agent that already rebound the path.
 		_ = ln.Close()
-		_ = removeStaleSocket(s.cfg.SocketPath)
 	}()
 
 	for {
