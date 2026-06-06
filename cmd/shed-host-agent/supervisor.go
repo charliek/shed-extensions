@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"sync"
+	"time"
 
 	sdk "github.com/charliek/shed/sdk"
 )
@@ -26,6 +28,7 @@ type SharedDeps struct {
 // once all of its goroutines have exited.
 type watcherGroup struct {
 	target ServerTarget
+	client *sdk.HostClient
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -67,7 +70,7 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	}()
 
 	log.Info("watching server")
-	return &watcherGroup{target: t, cancel: cancel, done: done}
+	return &watcherGroup{target: t, client: client, cancel: cancel, done: done}
 }
 
 // Supervisor reconciles the running per-server watcher groups against a desired
@@ -162,4 +165,39 @@ func (s *Supervisor) Shutdown() {
 	for _, g := range groups {
 		<-g.done
 	}
+}
+
+// Health returns the running daemon's per-server connection snapshot for
+// `status --live`: each watched server with its per-namespace SDK subscription
+// state. Sorted by name. The supervisor lock is released before calling into
+// each client so a slow Status() can't stall reconciles.
+func (s *Supervisor) Health() []ServerHealth {
+	s.mu.Lock()
+	type ref struct {
+		name, url string
+		client    *sdk.HostClient
+	}
+	refs := make([]ref, 0, len(s.groups))
+	for _, g := range s.groups {
+		refs = append(refs, ref{g.target.Name, g.target.URL, g.client})
+	}
+	s.mu.Unlock()
+
+	out := make([]ServerHealth, 0, len(refs))
+	for _, r := range refs {
+		sh := ServerHealth{Name: r.name, URL: r.url}
+		if r.client != nil {
+			for _, st := range r.client.Status() {
+				sh.Namespaces = append(sh.Namespaces, NamespaceHealth{
+					Namespace: st.Namespace,
+					State:     st.State,
+					LastError: st.LastError,
+					Since:     st.Since.UTC().Format(time.RFC3339),
+				})
+			}
+		}
+		out = append(out, sh)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }

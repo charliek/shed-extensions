@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
@@ -169,5 +171,69 @@ func TestStatusTargetsSingleServer(t *testing.T) {
 	targets := statusTargets(Config{Server: "http://localhost:8080"})
 	if len(targets) != 1 || targets[0].URL != "http://localhost:8080" || targets[0].Name != "" {
 		t.Fatalf("targets = %+v", targets)
+	}
+}
+
+func TestRenderLiveStatus(t *testing.T) {
+	ls := LiveStatus{
+		Version: "0.3.6", Pid: 1234, WrittenAt: "2026-06-06T12:00:00Z",
+		Servers: []ServerHealth{
+			{Name: "mac-mini", URL: "http://localhost:8080", Namespaces: []NamespaceHealth{
+				{Namespace: "ssh-agent", State: "connected"},
+				{Namespace: "docker-credentials", State: "reconnecting", LastError: "connection refused"},
+			}},
+			{Name: "", URL: "http://x:8080"}, // default name, no subscriptions yet
+		},
+	}
+	var sb strings.Builder
+	renderLiveStatus(&sb, ls)
+	out := sb.String()
+	for _, want := range []string{
+		"pid 1234", "snapshot: 2026-06-06T12:00:00Z",
+		"mac-mini", "ssh-agent", "connected",
+		"reconnecting: connection refused",
+		"(default)", "(no subscriptions yet)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("live render missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestServeStatusSocketRoundTrip(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "status.sock")
+	want := LiveStatus{
+		Version: "v1", Pid: 99, WrittenAt: "t0",
+		Servers: []ServerHealth{{Name: "s1", URL: "u1",
+			Namespaces: []NamespaceHealth{{Namespace: "ssh-agent", State: "connected"}}}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go serveStatusSocket(ctx, sock, func() LiveStatus { return want }, testLogger())
+
+	// Wait for the listener to bind.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("status socket never appeared")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	conn, err := net.DialTimeout("unix", sock, 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	var got LiveStatus
+	if err := json.NewDecoder(conn).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Pid != 99 || len(got.Servers) != 1 || got.Servers[0].Name != "s1" ||
+		len(got.Servers[0].Namespaces) != 1 || got.Servers[0].Namespaces[0].State != "connected" {
+		t.Fatalf("round-trip mismatch: %+v", got)
 	}
 }

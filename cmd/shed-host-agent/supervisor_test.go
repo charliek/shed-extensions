@@ -152,3 +152,28 @@ func TestSupervisorShutdown(t *testing.T) {
 		t.Errorf("reconcile after shutdown started groups: %v", got)
 	}
 }
+
+func TestSupervisorHealth(t *testing.T) {
+	f := &fakeGroups{}
+	s := NewSupervisor(context.Background(), SharedDeps{Logger: slog.Default()})
+	s.newGroup = f.factory
+	defer s.Shutdown()
+
+	s.Reconcile([]ServerTarget{{Name: "mini3", URL: "http://mini3:8080"}, {Name: "mini2", URL: "http://mini2:8080"}})
+
+	h := s.Health()
+	if len(h) != 2 {
+		t.Fatalf("Health() returned %d servers, want 2", len(h))
+	}
+	// Sorted by name.
+	if h[0].Name != "mini2" || h[1].Name != "mini3" {
+		t.Fatalf("Health() not sorted by name: %+v", h)
+	}
+	if h[0].URL != "http://mini2:8080" {
+		t.Fatalf("Health()[0].URL = %q", h[0].URL)
+	}
+	// fakeGroups builds client-less groups → no namespaces, and no panic.
+	if len(h[0].Namespaces) != 0 {
+		t.Fatalf("expected no namespaces for a client-less group, got %+v", h[0].Namespaces)
+	}
+}
