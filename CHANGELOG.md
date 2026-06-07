@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.3.6
+
+### Features
+
+- **`shed-host-agent status`** — a host-side diagnostic (#23): effective approval
+  policies, the desktop-socket state (`listening` / `missing` / `stale`), and
+  per-server reachability + registered namespaces. `--json` for scripting.
+- **`shed-host-agent status --live`** (#27) — the running daemon's own
+  per-(server, namespace) connection state (`connected` / `reconnecting` + the
+  failure reason), served over a read-only status socket.
+- **Operational log rotation** (#25) — a `-log-file` flag writes a size-capped,
+  rotated log (10 MB × 5 backups, gzip) instead of the unbounded launchd-captured
+  stderr log (which had grown to 21 MB). The brew service sets it.
+
+### Fixes
+
+- **The desktop approval socket no longer vanishes** (#24) — the agent now
+  refuses to bind over a *live* socket instead of clobbering it, so a second or
+  stray agent can't delete the running agent's socket and silently break the
+  app's reconnection (it looked "up" but unreachable until a service kickstart).
+
+### Dependencies
+
+- Bump `shed/sdk` to v0.1.1 (#26): reconnect-log dedup (no more a `WARN` per
+  retry — a persistently-down server used to flood the log) plus
+  `HostClient.Status()`, which powers `status --live`.
+
 ## v0.3.5
 
 ### Breaking changes
