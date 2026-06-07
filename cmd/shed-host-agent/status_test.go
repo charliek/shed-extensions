@@ -57,7 +57,7 @@ func TestProbeListenersErrors(t *testing.T) {
 }
 
 func TestDesktopSocketState(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortDir(t) // bind under a short /tmp root (sun_path 104-byte cap)
 
 	// Disabled → reported as disabled regardless of the path.
 	if st := desktopSocketState(DesktopConfig{Enabled: false}); st.State != "disabled" {
@@ -201,7 +201,7 @@ func TestRenderLiveStatus(t *testing.T) {
 }
 
 func TestServeStatusSocketRoundTrip(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "status.sock")
+	sock := shortSocketPath(t) // short /tmp root: avoid the sun_path 104-byte cap
 	want := LiveStatus{
 		Version: "v1", Pid: 99, WrittenAt: "t0",
 		Servers: []ServerHealth{{Name: "s1", URL: "u1",

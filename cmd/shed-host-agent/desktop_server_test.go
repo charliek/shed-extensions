@@ -23,12 +23,19 @@ func testLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard,
 // case well under the cap on both macOS and Linux.
 func shortSocketPath(t *testing.T) string {
 	t.Helper()
+	return filepath.Join(shortDir(t), "a.sock")
+}
+
+// shortDir is a short, test-name-independent /tmp directory for binding Unix
+// sockets in tests — same sun_path-cap rationale as shortSocketPath.
+func shortDir(t *testing.T) string {
+	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "shed-ds")
 	if err != nil {
 		t.Fatalf("mkdtemp: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return filepath.Join(dir, "a.sock")
+	return dir
 }
 
 func startTestServer(t *testing.T, timeoutMS int) (*DesktopServer, *AuditLogger, context.CancelFunc, string) {
@@ -103,7 +110,7 @@ func readType(t *testing.T, conn net.Conn, r *bufio.Reader, want string) map[str
 }
 
 func TestPrepareSocketPath(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortDir(t) // bind under a short /tmp root (sun_path 104-byte cap)
 
 	// Missing path → no-op.
 	if err := prepareSocketPath(filepath.Join(dir, "nope.sock")); err != nil {
