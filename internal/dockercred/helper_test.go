@@ -65,10 +65,11 @@ func TestGetError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	// A registry held back by the allowlist is wrapped as ErrCredentialsNotFound
-	// so the guest binary lets Docker fall back to an anonymous pull.
-	if !errors.Is(err, ErrCredentialsNotFound) {
-		t.Errorf("expected ErrCredentialsNotFound for %s, got %v", protocol.DockerCodeNotAllowed, err)
+	// A registry rejected by the allowlist must hit a hard wall — it is NOT
+	// wrapped as ErrCredentialsNotFound, so the guest binary fails the pull
+	// instead of letting Docker fall back to an anonymous pull.
+	if errors.Is(err, ErrCredentialsNotFound) {
+		t.Errorf("%s must not map to ErrCredentialsNotFound, got %v", protocol.DockerCodeNotAllowed, err)
 	}
 }
 

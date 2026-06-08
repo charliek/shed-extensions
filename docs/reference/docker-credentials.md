@@ -42,9 +42,11 @@ This tells Docker to use `docker-credential-shed` as the default credential help
 
 ## Public Images and Anonymous Pulls
 
-Because `credsStore` applies to **every** registry, Docker invokes `docker-credential-shed get` even for public images (e.g. `docker pull postgres:16-alpine`, which resolves to `https://index.docker.io/v1/`). When the host has no credential to serve for that registry — either none exists in the host's Docker config, or the registry is outside the allowlist — the binary returns Docker's standard `credentials not found in native keychain` message on stdout and exits non-zero. Docker treats this as "no credentials" and proceeds with an **anonymous pull**, which is exactly what public images need.
+Because `credsStore` applies to **every** registry, Docker invokes `docker-credential-shed get` even for public images (e.g. `docker pull postgres:16-alpine`, which resolves to `https://index.docker.io/v1/`). When the registry is **allowed** but the host has no matching credential, the binary returns Docker's standard `credentials not found in native keychain` message on stdout and exits non-zero. Docker treats this as "no credentials" and proceeds with an **anonymous pull**, which is exactly what public images need.
 
-This means `{"credsStore": "shed"}` is safe as a blanket default: it serves credentials when the host has them and the policy allows, and otherwise transparently steps aside so public pulls still work. Only genuine faults (a credential helper that exists but fails, a malformed request, or a bus error) abort the pull.
+This means `{"credsStore": "shed"}` is safe as a blanket default: it serves credentials when the host has them, falls back to an anonymous pull for public images on allowed registries, and only aborts the pull on a genuine fault (a credential helper that exists but fails, a malformed request, or a bus error).
+
+> **The allowlist is a hard wall, not a credential filter.** If `allow_all` is `false` and the requested registry is not in `registries`, the host returns `REGISTRY_NOT_ALLOWED` and the pull **fails** — even if a credential for that registry exists locally on the host. A non-allowed registry does *not* fall back to an anonymous pull: the allowlist is an explicit deny, checked before any credential lookup. To pull public images from a registry, add it to the allowlist (or set `allow_all: true`).
 
 ## Registry Configuration
 
