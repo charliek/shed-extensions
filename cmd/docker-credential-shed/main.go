@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,6 +26,13 @@ import (
 )
 
 const requestTimeout = 5 * time.Second
+
+// credentialsNotFoundMessage is the exact string Docker's credential-helper
+// protocol recognizes on a helper's stdout (with a non-zero exit) as "no
+// credentials for this registry", which makes Docker proceed with an anonymous
+// pull instead of aborting. It must match
+// github.com/docker/docker-credential-helpers/credentials.errCredentialsNotFoundMessage.
+const credentialsNotFoundMessage = "credentials not found in native keychain"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -58,16 +66,23 @@ func main() {
 }
 
 func doGet(publishURL string) {
-	input, err := io.ReadAll(os.Stdin)
+	os.Exit(runGet(publishURL, os.Stdin, os.Stdout, os.Stderr))
+}
+
+// runGet executes the credential-helper "get" operation and returns the process
+// exit code. It is split out from doGet so the Docker not-found contract can be
+// unit-tested without spawning a process.
+func runGet(publishURL string, stdin io.Reader, stdout, stderr io.Writer) int {
+	input, err := io.ReadAll(stdin)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "docker-credential-shed: reading stdin: %s\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "docker-credential-shed: reading stdin: %s\n", err)
+		return 1
 	}
 
 	serverURL := strings.TrimSpace(string(input))
 	if serverURL == "" {
-		fmt.Fprintf(os.Stderr, "docker-credential-shed: empty server URL\n")
-		os.Exit(1)
+		fmt.Fprintf(stderr, "docker-credential-shed: empty server URL\n")
+		return 1
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
@@ -76,8 +91,16 @@ func doGet(publishURL string) {
 	helper := dockercred.New(dockercred.WithPublishURL(publishURL))
 	resp, err := helper.Get(ctx, serverURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "docker-credential-shed: %s\n", err)
-		os.Exit(1)
+		// When the host broker has no credential to serve, speak Docker's
+		// protocol: print the not-found message to stdout and exit non-zero, so
+		// Docker falls back to an anonymous pull (the correct outcome for public
+		// images). Anything else is a genuine fault → stderr, no stdout.
+		if errors.Is(err, dockercred.ErrCredentialsNotFound) {
+			fmt.Fprintln(stdout, credentialsNotFoundMessage)
+			return 1
+		}
+		fmt.Fprintf(stderr, "docker-credential-shed: %s\n", err)
+		return 1
 	}
 
 	// Docker expects PascalCase JSON fields from credential helpers
@@ -91,10 +114,11 @@ func doGet(publishURL string) {
 		Secret:    resp.Secret,
 	}
 
-	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
-		fmt.Fprintf(os.Stderr, "docker-credential-shed: encoding response: %s\n", err)
-		os.Exit(1)
+	if err := json.NewEncoder(stdout).Encode(out); err != nil {
+		fmt.Fprintf(stderr, "docker-credential-shed: encoding response: %s\n", err)
+		return 1
 	}
+	return 0
 }
 
 func doList(publishURL string) {

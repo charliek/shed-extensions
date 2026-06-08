@@ -125,6 +125,9 @@ func TestGetCredentialsAllowlist(t *testing.T) {
 	writeDockerConfig(t, configPath, dockerConfig{
 		Auths: map[string]dockerAuthEntry{
 			"allowed.io": {Auth: base64.StdEncoding.EncodeToString([]byte("user:pass"))},
+			// blocked.io has a perfectly good local credential — the allowlist
+			// must still refuse to serve it.
+			"blocked.io": {Auth: base64.StdEncoding.EncodeToString([]byte("user:secret"))},
 		},
 	})
 
@@ -144,10 +147,12 @@ func TestGetCredentialsAllowlist(t *testing.T) {
 		t.Errorf("Username = %q, want %q", cred.Username, "user")
 	}
 
-	// Blocked registry should fail
+	// Blocked registry must fail with REGISTRY_NOT_ALLOWED even though a
+	// credential for it exists locally — the allowlist is an explicit deny,
+	// checked before any credential lookup, not just a credential filter.
 	_, err = b.GetCredentials(context.Background(), "srv", "shed", "blocked.io")
 	if err == nil {
-		t.Fatal("expected error for blocked registry")
+		t.Fatal("expected error for blocked registry that has a local credential")
 	}
 	de, ok := err.(*dockerError)
 	if !ok {

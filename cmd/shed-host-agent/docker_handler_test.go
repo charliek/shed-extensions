@@ -146,6 +146,90 @@ func TestDockerHandlerGetError(t *testing.T) {
 	}
 }
 
+// TestDockerHandlerGetAuditResult pins how each get failure is recorded in the
+// audit log: CREDENTIALS_NOT_FOUND for an allowed registry is a successful
+// anonymous pull ("anonymous"), while an allowlist deny and genuine faults stay
+// "error". This is what keeps a public-image pull from showing as a red error
+// in the shed-desktop activity feed.
+func TestDockerHandlerGetAuditResult(t *testing.T) {
+	cases := []struct {
+		name       string
+		backendErr error
+		wantResult string
+	}{
+		{
+			name:       "credentials not found is audited as anonymous",
+			backendErr: &dockerError{msg: "no credentials found", code: protocol.DockerCodeNotFound},
+			wantResult: auditResultAnonymous,
+		},
+		{
+			name:       "registry not allowed stays an error",
+			backendErr: &dockerError{msg: "registry not allowed", code: protocol.DockerCodeNotAllowed},
+			wantResult: auditResultError,
+		},
+		{
+			name:       "helper failure stays an error",
+			backendErr: &dockerError{msg: "boom", code: protocol.DockerCodeHelperFailed},
+			wantResult: auditResultError,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &mockDockerBackend{err: tc.backendErr}
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					req := protocol.DockerGetRequest{Operation: protocol.DockerOpGet, ServerURL: "https://index.docker.io/v1/"}
+					payload, _ := json.Marshal(req)
+					env := sdk.NewEnvelope(protocol.NamespaceDockerCredentials, sdk.MessageTypeRequest, payload)
+					env.Shed = &sdk.ShedInfo{Name: "test-shed"}
+					data, _ := json.Marshal(env)
+
+					w.Header().Set("Content-Type", "text/event-stream")
+					w.WriteHeader(http.StatusOK)
+					flusher := w.(http.Flusher)
+					fmt.Fprintf(w, "data: %s\n\n", data)
+					flusher.Flush()
+					<-r.Context().Done()
+
+				case http.MethodPost:
+					w.WriteHeader(http.StatusNoContent)
+				}
+			}))
+			defer srv.Close()
+
+			client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
+			logger := slog.Default()
+			audit := &AuditLogger{logger: logger}
+			entries, unsub := audit.Subscribe(4)
+			defer unsub()
+
+			handler := NewDockerHandler(backend, client, &noopGate{}, audit, "test-server", logger)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			go handler.Run(ctx)
+
+			select {
+			case entry := <-entries:
+				if entry.Operation != protocol.DockerOpGet {
+					t.Fatalf("operation: got %q, want %q", entry.Operation, protocol.DockerOpGet)
+				}
+				if entry.Result != tc.wantResult {
+					t.Errorf("result: got %q, want %q", entry.Result, tc.wantResult)
+				}
+				if entry.Detail != "https://index.docker.io/v1/" {
+					t.Errorf("detail: got %q, want the registry URL", entry.Detail)
+				}
+			case <-ctx.Done():
+				t.Fatal("timed out waiting for audit entry")
+			}
+		})
+	}
+}
+
 func TestDockerHandlerPing(t *testing.T) {
 	backend := &mockDockerBackend{}
 	respondCalled := make(chan json.RawMessage, 1)

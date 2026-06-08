@@ -40,6 +40,16 @@ The guest VM's `~/.docker/config.json` is configured with:
 
 This tells Docker to use `docker-credential-shed` as the default credential helper for all registries. The host-side allowlist controls which registries actually get credentials served.
 
+## Public Images and Anonymous Pulls
+
+Because `credsStore` applies to **every** registry, Docker invokes `docker-credential-shed get` even for public images (e.g. `docker pull postgres:16-alpine`, which resolves to `https://index.docker.io/v1/`). When the registry is **allowed** but the host has no matching credential, the binary returns Docker's standard `credentials not found in native keychain` message on stdout and exits non-zero. Docker treats this as "no credentials" and proceeds with an **anonymous pull**, which is exactly what public images need.
+
+This means `{"credsStore": "shed"}` is safe as a blanket default: it serves credentials when the host has them, falls back to an anonymous pull for public images on allowed registries, and only aborts the pull on a genuine fault (a credential helper that exists but fails, a malformed request, or a bus error).
+
+These anonymous pulls are recorded in the audit log with `result: anonymous` (not `error`), so a public-image pull shows as a successful anonymous request rather than a failure. A genuine fault is still recorded as `error`, and an allowlist deny as `error` (see below).
+
+> **The allowlist is a hard wall, not a credential filter.** If `allow_all` is `false` and the requested registry is not in `registries`, the host returns `REGISTRY_NOT_ALLOWED` and the pull **fails** — even if a credential for that registry exists locally on the host. A non-allowed registry does *not* fall back to an anonymous pull: the allowlist is an explicit deny, checked before any credential lookup. To pull public images from a registry, add it to the allowlist (or set `allow_all: true`).
+
 ## Registry Configuration
 
 The host agent controls which registries are available to VMs via an allowlist:
@@ -128,4 +138,4 @@ No caching on either side. Each `docker pull` triggers a fresh credential lookup
 
 ## Timeouts
 
-Credential requests use a 5-second timeout. On timeout, the binary writes an error to stderr and exits with code 1. Docker then falls back to anonymous access or prompts for credentials depending on the registry.
+Credential requests use a 5-second timeout. A timeout is treated as a genuine fault, not a missing credential: the binary writes the error to stderr and exits non-zero with empty stdout, which aborts the pull. This is deliberate — a broker that is unreachable should surface loudly rather than silently degrade to an anonymous pull (which would then fail confusingly on any private image). Only an explicit "no credential to serve" response from the host (see [Public Images and Anonymous Pulls](#public-images-and-anonymous-pulls)) triggers Docker's anonymous-pull fallback.
