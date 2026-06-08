@@ -75,7 +75,7 @@ All credential operations are logged as JSON lines to `~/.local/share/shed/exten
 | `shed` | Shed instance name |
 | `ns` | Namespace (`ssh-agent`, `aws-credentials`, or `docker-credentials`) |
 | `op` | Operation performed |
-| `result` | `ok`, `denied`, or `error` |
+| `result` | `ok`, `denied`, `error`, or `anonymous` (docker get for an allowed registry with no credential to serve — the guest pulls anonymously) |
 | `detail` | Key type, fingerprint, or role ARN |
 | `approval` | Configured approval method: `biometrics-or-password`, `biometrics`, or `none` (gate disabled) |
 

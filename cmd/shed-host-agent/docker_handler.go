@@ -11,6 +11,20 @@ import (
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
 
+// Audit result values for the docker-credentials get path. shed-desktop renders
+// "ok"→green and "error"/"denied"→red, and any other value neutrally — so
+// "anonymous" degrades gracefully to a neutral row without a desktop change.
+const (
+	// auditResultError marks a credential get that genuinely failed: an
+	// allowlist deny (REGISTRY_NOT_ALLOWED) or a fault (HELPER_FAILED, …).
+	auditResultError = "error"
+	// auditResultAnonymous marks a get for an allowed registry that had no
+	// credential to serve (CREDENTIALS_NOT_FOUND). This is not a failure — the
+	// guest pulls the image anonymously — so it is recorded distinctly from a
+	// real error.
+	auditResultAnonymous = "anonymous"
+)
+
 // DockerHandler processes Docker credential requests from the plugin message
 // bus for a single shed server.
 type DockerHandler struct {
@@ -98,17 +112,33 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 
 	cred, err := h.backend.GetCredentials(ctx, h.server, shedName, req.ServerURL)
 	if err != nil {
-		h.logger.Error("get credentials failed", "error", err, "server", h.server, "shed", shedName, "registry", req.ServerURL)
-
 		code := protocol.DockerCodeInternal
 		if de, ok := err.(*dockerError); ok {
 			code = de.code
 		}
-		// Send a generic message to the guest; the full error is logged host-side above
+
+		// CREDENTIALS_NOT_FOUND for an allowed registry is not a failure: the
+		// guest helper turns it into Docker's anonymous-pull fallback (public
+		// images need no credential). Audit it as "anonymous" — not "error" — so
+		// the durable log and the shed-desktop activity feed show a successful
+		// anonymous pull rather than a red error, and log it at info level rather
+		// than error. REGISTRY_NOT_ALLOWED (an explicit deny) and genuine faults
+		// (HELPER_FAILED, INTERNAL_ERROR, …) stay "error" and log loudly.
+		result := auditResultError
+		if code == protocol.DockerCodeNotFound {
+			result = auditResultAnonymous
+			h.logger.Info("no credential for allowed registry; guest pulls anonymously",
+				"server", h.server, "shed", shedName, "registry", req.ServerURL)
+		} else {
+			h.logger.Error("get credentials failed", "error", err, "server", h.server, "shed", shedName, "registry", req.ServerURL)
+		}
+
+		// The guest still receives the original error code; it decides how to act
+		// (anonymous fallback for not-found, hard fail otherwise).
 		h.sendError(ctx, env, "credential request failed", code)
 		h.audit.LogEntry(AuditEntry{
 			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceDockerCredentials, Operation: protocol.DockerOpGet,
-			Result: "error", Detail: req.ServerURL, Approval: h.approval.Method(),
+			Result: result, Detail: req.ServerURL, Approval: h.approval.Method(),
 			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
 		})
 		return

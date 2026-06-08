@@ -46,6 +46,8 @@ Because `credsStore` applies to **every** registry, Docker invokes `docker-crede
 
 This means `{"credsStore": "shed"}` is safe as a blanket default: it serves credentials when the host has them, falls back to an anonymous pull for public images on allowed registries, and only aborts the pull on a genuine fault (a credential helper that exists but fails, a malformed request, or a bus error).
 
+These anonymous pulls are recorded in the audit log with `result: anonymous` (not `error`), so a public-image pull shows as a successful anonymous request rather than a failure. A genuine fault is still recorded as `error`, and an allowlist deny as `error` (see below).
+
 > **The allowlist is a hard wall, not a credential filter.** If `allow_all` is `false` and the requested registry is not in `registries`, the host returns `REGISTRY_NOT_ALLOWED` and the pull **fails** — even if a credential for that registry exists locally on the host. A non-allowed registry does *not* fall back to an anonymous pull: the allowlist is an explicit deny, checked before any credential lookup. To pull public images from a registry, add it to the allowlist (or set `allow_all: true`).
 
 ## Registry Configuration
