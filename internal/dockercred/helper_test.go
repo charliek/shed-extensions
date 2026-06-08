@@ -3,6 +3,7 @@ package dockercred
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/charliek/shed-extensions/internal/protocol"
@@ -64,6 +65,11 @@ func TestGetError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+	// A registry held back by the allowlist is wrapped as ErrCredentialsNotFound
+	// so the guest binary lets Docker fall back to an anonymous pull.
+	if !errors.Is(err, ErrCredentialsNotFound) {
+		t.Errorf("expected ErrCredentialsNotFound for %s, got %v", protocol.DockerCodeNotAllowed, err)
+	}
 }
 
 func TestGetNotFound(t *testing.T) {
@@ -81,6 +87,31 @@ func TestGetNotFound(t *testing.T) {
 	_, err := h.Get(context.Background(), "unknown.io")
 	if err == nil {
 		t.Fatal("expected error for unknown registry")
+	}
+	if !errors.Is(err, ErrCredentialsNotFound) {
+		t.Errorf("expected ErrCredentialsNotFound for %s, got %v", protocol.DockerCodeNotFound, err)
+	}
+}
+
+func TestGetHelperFailedIsHardError(t *testing.T) {
+	srv := testutil.NewMockPublishServer(t, protocol.NamespaceDockerCredentials, func(_ json.RawMessage) json.RawMessage {
+		resp := protocol.DockerErrorResponse{
+			Error: "docker-credential-gcloud failed",
+			Code:  protocol.DockerCodeHelperFailed,
+		}
+		data, _ := json.Marshal(resp)
+		return data
+	})
+	defer srv.Close()
+
+	h := New(WithPublishURL(srv.URL + "/v1/publish"))
+	_, err := h.Get(context.Background(), "us-docker.pkg.dev")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// Genuine helper faults must stay hard errors, not be masked as not-found.
+	if errors.Is(err, ErrCredentialsNotFound) {
+		t.Errorf("HELPER_FAILED must not map to ErrCredentialsNotFound, got %v", err)
 	}
 }
 

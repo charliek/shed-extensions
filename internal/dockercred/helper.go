@@ -7,12 +7,21 @@ package dockercred
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	sdk "github.com/charliek/shed/sdk"
 
 	"github.com/charliek/shed-extensions/internal/protocol"
 )
+
+// ErrCredentialsNotFound is returned by Get when the host broker has no
+// credential to serve for the requested registry — either none exists in the
+// host's Docker config, or the registry is outside the configured allowlist.
+// The docker-credential-shed binary translates this into Docker's standard
+// "credentials not found" signal so the daemon falls back to an anonymous pull
+// (which is what public images need) instead of aborting with a hard error.
+var ErrCredentialsNotFound = errors.New("no credentials for registry")
 
 type Helper struct {
 	bus *sdk.BusClient
@@ -58,7 +67,17 @@ func (h *Helper) Get(ctx context.Context, serverURL string) (*protocol.DockerGet
 	// Check for error response
 	var errResp protocol.DockerErrorResponse
 	if json.Unmarshal(respPayload, &errResp) == nil && errResp.Code != "" {
-		return nil, fmt.Errorf("host error [%s]: %s", errResp.Code, errResp.Error)
+		// "No credential to serve" — whether none exists (CREDENTIALS_NOT_FOUND)
+		// or policy withholds it (REGISTRY_NOT_ALLOWED) — is wrapped as
+		// ErrCredentialsNotFound so the caller can surface Docker's anonymous-pull
+		// fallback. Genuine faults (HELPER_FAILED, INTERNAL_ERROR, READ_ONLY) stay
+		// hard errors so they remain visible to the user.
+		switch errResp.Code {
+		case protocol.DockerCodeNotFound, protocol.DockerCodeNotAllowed:
+			return nil, fmt.Errorf("host error [%s]: %s: %w", errResp.Code, errResp.Error, ErrCredentialsNotFound)
+		default:
+			return nil, fmt.Errorf("host error [%s]: %s", errResp.Code, errResp.Error)
+		}
 	}
 
 	var resp protocol.DockerGetResponse
