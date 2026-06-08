@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.3.7
+
+### Fixes
+
+- **`docker pull` of public images works again** (#28) — `docker-credential-shed`
+  now speaks Docker's credential-helper protocol for the "no credential" case.
+  When the host broker has no credential for an *allowed* registry, the guest
+  emits `credentials not found in native keychain` on stdout (exit 1), so Docker
+  falls back to an anonymous pull instead of aborting with
+  `error getting credentials - err: exit status 1, out:`. The allowlist stays a
+  **hard wall** — `REGISTRY_NOT_ALLOWED` aborts the pull even when a credential
+  exists locally on the host — and genuine helper faults remain hard errors.
+
+### Features
+
+- **Audit no-credential pulls as `anonymous`** (#28) — a docker `get` for an
+  allowed registry with no credential to serve is recorded with
+  `result: anonymous` (info level) instead of `error`, so a public-image pull
+  shows as a successful anonymous request rather than a red error in the audit
+  log and the shed-desktop activity feed.
+
 ## v0.3.6
 
 ### Features
