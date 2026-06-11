@@ -21,7 +21,19 @@ type AuditEntry struct {
 	Operation string `json:"op"`
 	Result    string `json:"result"`
 	Detail    string `json:"detail,omitempty"`
-	Approval  string `json:"approval"`
+	// Code is a machine-readable cause for a non-ok result — the protocol error
+	// code (e.g. REGISTRY_NOT_ALLOWED, CREDENTIALS_NOT_FOUND) or an audit-only
+	// code such as APPROVAL_DENIED. Empty/omitted for successful operations. It
+	// lets the durable log and the shed-desktop feed show (and filter on) *why*
+	// an operation failed, not merely that it did.
+	Code string `json:"code,omitempty"`
+	// Reason is a short host-side human explanation for a non-ok result (e.g.
+	// `registry "index.docker.io" not in allowlist`). Safe for host/admin
+	// surfaces (the durable log, shed-desktop): it is derived from the broker's
+	// own error and never carries raw credential-helper stderr, which can hold
+	// secrets and stays only in the host's debug log. Empty/omitted on success.
+	Reason   string `json:"reason,omitempty"`
+	Approval string `json:"approval"`
 	// Decision detail for gated operations (who decided + the scope/TTL applied),
 	// so the durable file records the full approval outcome even when the decision
 	// was made in shed-desktop. Empty/omitted for non-gated operations.

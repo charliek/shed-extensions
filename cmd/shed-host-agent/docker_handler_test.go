@@ -156,21 +156,29 @@ func TestDockerHandlerGetAuditResult(t *testing.T) {
 		name       string
 		backendErr error
 		wantResult string
+		wantCode   string
+		wantReason string
 	}{
 		{
 			name:       "credentials not found is audited as anonymous",
 			backendErr: &dockerError{msg: "no credentials found", code: protocol.DockerCodeNotFound},
 			wantResult: auditResultAnonymous,
+			wantCode:   protocol.DockerCodeNotFound,
+			wantReason: "no credentials found",
 		},
 		{
 			name:       "registry not allowed stays an error",
 			backendErr: &dockerError{msg: "registry not allowed", code: protocol.DockerCodeNotAllowed},
 			wantResult: auditResultError,
+			wantCode:   protocol.DockerCodeNotAllowed,
+			wantReason: "registry not allowed",
 		},
 		{
 			name:       "helper failure stays an error",
 			backendErr: &dockerError{msg: "boom", code: protocol.DockerCodeHelperFailed},
 			wantResult: auditResultError,
+			wantCode:   protocol.DockerCodeHelperFailed,
+			wantReason: "boom",
 		},
 	}
 
@@ -223,10 +231,98 @@ func TestDockerHandlerGetAuditResult(t *testing.T) {
 				if entry.Detail != "https://index.docker.io/v1/" {
 					t.Errorf("detail: got %q, want the registry URL", entry.Detail)
 				}
+				if entry.Code != tc.wantCode {
+					t.Errorf("code: got %q, want %q", entry.Code, tc.wantCode)
+				}
+				if entry.Reason != tc.wantReason {
+					t.Errorf("reason: got %q, want %q", entry.Reason, tc.wantReason)
+				}
 			case <-ctx.Done():
 				t.Fatal("timed out waiting for audit entry")
 			}
 		})
+	}
+}
+
+// TestDockerHandlerGetApprovalDenied pins how a request rejected by the approval
+// gate is recorded: result "denied" with the audit-only code APPROVAL_DENIED (so
+// host/admin surfaces distinguish "not approved" from an allowlist deny), while
+// the guest still receives REGISTRY_NOT_ALLOWED for back-compat.
+func TestDockerHandlerGetApprovalDenied(t *testing.T) {
+	backend := &mockDockerBackend{
+		cred: &DockerCredential{ServerURL: "ghcr.io", Username: "u", Secret: "s"},
+	}
+
+	guestPayload := make(chan json.RawMessage, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			req := protocol.DockerGetRequest{Operation: protocol.DockerOpGet, ServerURL: "ghcr.io"}
+			payload, _ := json.Marshal(req)
+			env := sdk.NewEnvelope(protocol.NamespaceDockerCredentials, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
+			data, _ := json.Marshal(env)
+
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher := w.(http.Flusher)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			<-r.Context().Done()
+
+		case http.MethodPost:
+			var env sdk.Envelope
+			json.NewDecoder(r.Body).Decode(&env)
+			w.WriteHeader(http.StatusNoContent)
+			guestPayload <- env.Payload
+		}
+	}))
+	defer srv.Close()
+
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
+	logger := slog.Default()
+	audit := &AuditLogger{logger: logger}
+	entries, unsub := audit.Subscribe(4)
+	defer unsub()
+
+	// denyAllGate rejects every request → exercises the approval-denied branch.
+	handler := NewDockerHandler(backend, client, &denyAllGate{}, audit, "test-server", logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go handler.Run(ctx)
+
+	select {
+	case entry := <-entries:
+		if entry.Result != "denied" {
+			t.Errorf("result: got %q, want %q", entry.Result, "denied")
+		}
+		if entry.Code != auditCodeApprovalDenied {
+			t.Errorf("code: got %q, want %q", entry.Code, auditCodeApprovalDenied)
+		}
+		if entry.Reason == "" {
+			t.Error("reason: got empty, want the approval-gate error")
+		}
+		if entry.Detail != "ghcr.io" {
+			t.Errorf("detail: got %q, want %q", entry.Detail, "ghcr.io")
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for audit entry")
+	}
+
+	// The guest must still receive REGISTRY_NOT_ALLOWED (behavior unchanged).
+	select {
+	case payload := <-guestPayload:
+		var errResp protocol.DockerErrorResponse
+		if err := json.Unmarshal(payload, &errResp); err != nil {
+			t.Fatalf("unmarshal error response: %v", err)
+		}
+		if errResp.Code != protocol.DockerCodeNotAllowed {
+			t.Errorf("guest code: got %q, want %q", errResp.Code, protocol.DockerCodeNotAllowed)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for guest error response")
 	}
 }
 

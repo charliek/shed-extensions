@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Audit failure code + reason** — a docker credential `get` that fails now
+  records a machine-readable `code` (e.g. `REGISTRY_NOT_ALLOWED`,
+  `APPROVAL_DENIED`) and a short host-side `reason` in the durable audit log and
+  on the shed-desktop event stream, so *why* a pull failed is visible — not just
+  that it did. Approval denials are distinguished from allowlist denials
+  (`APPROVAL_DENIED` vs `REGISTRY_NOT_ALLOWED`) on host/admin surfaces, while the
+  guest still receives `REGISTRY_NOT_ALLOWED` for both (behavior unchanged). The
+  host-agent log lines gain a structured `code` attribute, and the shed-desktop
+  approval prompt now names the registry being requested. New `AuditEntry`
+  fields are additive (`omitempty`), so existing log parsers and older
+  shed-desktop builds are unaffected.
+
+### Docs
+
+- **Allowlist Docker Hub as `index.docker.io`, not `docker.io`** — Docker
+  requests Hub credentials for `https://index.docker.io/v1/`, which normalizes to
+  `index.docker.io`; a bare `docker.io` entry never matches and pulls fail with
+  `REGISTRY_NOT_ALLOWED`. Corrected the examples in
+  `docs/reference/docker-credentials.md`, `docs/reference/configuration.md`, and
+  `configs/extensions.example.yaml`.
+
 ## v0.3.7
 
 ### Fixes
