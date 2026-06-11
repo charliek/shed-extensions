@@ -83,20 +83,25 @@ func TestRunStatusEndToEnd(t *testing.T) {
 }
 
 func TestRunStatusRejectsUnrecognizedSchema(t *testing.T) {
-	// A process on the socket that doesn't speak our schema (schema 0 → the
-	// zero value) must not render a misleading all-zero report.
-	t.Setenv("SHED_HOST_AGENT_SOCKET_DIR", shortDir(t))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go serveStatusSocket(ctx, statusSocketPath(), func() LiveStatus { return LiveStatus{} }, testLogger())
-	waitForSocket(t, statusSocketPath())
+	// Any schema mismatch must be refused (not rendered): schema bumps only on a
+	// breaking change, so a different number means the payload can't be trusted.
+	// Cover both the zero value (foreign/old process) and a non-matching version.
+	for _, schema := range []int{0, statusSchemaVersion + 1} {
+		t.Setenv("SHED_HOST_AGENT_SOCKET_DIR", shortDir(t))
+		ctx, cancel := context.WithCancel(context.Background())
+		go serveStatusSocket(ctx, statusSocketPath(), func() LiveStatus {
+			return LiveStatus{Schema: schema, Pid: 7, Version: "x"}
+		}, testLogger())
+		waitForSocket(t, statusSocketPath())
 
-	var out strings.Builder
-	if code := runStatus(false, &out); code != 1 {
-		t.Fatalf("runStatus against a schema-0 responder = %d, want 1", code)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("expected no rendered report for schema 0, got:\n%s", out.String())
+		var out strings.Builder
+		if code := runStatus(false, &out); code != 1 {
+			t.Fatalf("schema %d: runStatus = %d, want 1", schema, code)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("schema %d: expected no rendered report, got:\n%s", schema, out.String())
+		}
+		cancel()
 	}
 }
 

@@ -159,12 +159,16 @@ func (c Config) ResolveTargets(discovered []ServerTarget) []ServerTarget {
 // moved to the top-level `approval_timeout`. The struct remains only so
 // LoadConfig can warn when an old config still sets these keys.
 type DesktopConfig struct {
+	// All pointers so an explicitly-set value (even a zero/empty one) is
+	// distinguishable from an omitted key — warnDeprecatedDesktopKeys warns on
+	// presence, not on a non-zero value.
+	//
 	// Deprecated: ignored. The approval channel is always on.
 	Enabled *bool `yaml:"enabled"`
 	// Deprecated: ignored. The socket path is fixed (see desktopSocketPath).
-	SocketPath string `yaml:"socket_path"`
+	SocketPath *string `yaml:"socket_path"`
 	// Deprecated: ignored. Use the top-level `approval_timeout` instead.
-	TimeoutMS int `yaml:"timeout_ms"`
+	TimeoutMS *int `yaml:"timeout_ms"`
 }
 
 // DockerConfig controls the Docker registry credential handler behavior. The
@@ -503,13 +507,13 @@ func warnDeprecatedDesktopKeys(d DesktopConfig) {
 	if d.Enabled != nil {
 		slog.Warn("config: `desktop.enabled` is deprecated and ignored — the approval channel is always on")
 	}
-	if d.SocketPath != "" {
+	if d.SocketPath != nil {
 		slog.Warn("config: `desktop.socket_path` is deprecated and ignored — the socket path is fixed",
 			"path", desktopSocketPath())
 	}
-	if d.TimeoutMS != 0 {
+	if d.TimeoutMS != nil {
 		slog.Warn("config: `desktop.timeout_ms` is deprecated and ignored — use the top-level `approval_timeout`",
-			"timeout_ms", d.TimeoutMS)
+			"timeout_ms", *d.TimeoutMS)
 	}
 }
 

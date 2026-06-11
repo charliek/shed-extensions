@@ -42,14 +42,13 @@ func runStatus(jsonOut bool, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "status: reading from the agent: %v\n", err)
 		return 1
 	}
+	// Schema bumps only on a breaking change (additive fields don't — see
+	// host-agent-ipc.md), so any mismatch means the payload can't be trusted:
+	// refuse rather than render a possibly-misleading report.
 	if ls.Schema != statusSchemaVersion {
 		fmt.Fprintf(os.Stderr, "status: agent status schema is %d, this CLI expects %d "+
-			"(version skew between shed-host-agent and the CLI)\n", ls.Schema, statusSchemaVersion)
-		// Schema 0 means the response isn't a recognizable LiveStatus (an old or
-		// foreign process on the socket); don't render a misleading all-zero report.
-		if ls.Schema == 0 {
-			return 1
-		}
+			"(version skew — match the shed-host-agent binary and CLI versions)\n", ls.Schema, statusSchemaVersion)
+		return 1
 	}
 	if jsonOut {
 		enc := json.NewEncoder(out)
