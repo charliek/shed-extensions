@@ -231,8 +231,8 @@ func TestExampleConfigIsValid(t *testing.T) {
 	if cfg.Docker.Approval.Policy != PolicyApproveAll {
 		t.Errorf("docker policy = %q, want %q", cfg.Docker.Approval.Policy, PolicyApproveAll)
 	}
-	if len(cfg.Docker.Registries) != 2 || cfg.Docker.Registries[0] != "docker.io" || cfg.Docker.Registries[1] != "ghcr.io" {
-		t.Errorf("docker registries = %v, want [docker.io ghcr.io]", cfg.Docker.Registries)
+	if len(cfg.Docker.Registries) != 2 || cfg.Docker.Registries[0] != "index.docker.io" || cfg.Docker.Registries[1] != "ghcr.io" {
+		t.Errorf("docker registries = %v, want [index.docker.io ghcr.io]", cfg.Docker.Registries)
 	}
 }
 

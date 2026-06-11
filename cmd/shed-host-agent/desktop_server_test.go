@@ -260,6 +260,31 @@ func TestDesktopAuditFanoutAllNamespaces(t *testing.T) {
 	}
 }
 
+// TestDesktopAuditForwardsCodeReason pins that a failed entry's code+reason
+// reach the app on the event frame — not just the durable log file. The desktop
+// eventMsg is built by hand from the AuditEntry, so a new AuditEntry field is
+// silently dropped from the app's feed unless the frame is updated too.
+func TestDesktopAuditForwardsCodeReason(t *testing.T) {
+	s, audit, cancel, sock := startTestServer(t, 1000)
+	defer cancel()
+	conn, r := dialHello(t, s, sock)
+	defer conn.Close()
+
+	audit.LogEntry(AuditEntry{
+		Server: "localmac", Shed: "t1", Namespace: "docker-credentials", Operation: "get",
+		Result: "error", Detail: "quay.io",
+		Code: "REGISTRY_NOT_ALLOWED", Reason: `registry "quay.io" not in allowlist`,
+		Approval: "approve-all",
+	})
+	ev := readType(t, conn, r, "event")
+	if ev["code"] != "REGISTRY_NOT_ALLOWED" {
+		t.Errorf("event code: got %v, want REGISTRY_NOT_ALLOWED", ev["code"])
+	}
+	if ev["reason"] != `registry "quay.io" not in allowlist` {
+		t.Errorf("event reason: got %v, want the allowlist reason", ev["reason"])
+	}
+}
+
 func TestDesktopLastWriterWins(t *testing.T) {
 	s, _, cancel, sock := startTestServer(t, 5000)
 	defer cancel()

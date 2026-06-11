@@ -32,7 +32,7 @@ aws:
 
 docker:
   registries:
-    - docker.io
+    - index.docker.io                # Docker Hub — list as index.docker.io, not docker.io
     - ghcr.io
     - registry.acmeco.com
   # allow_all: true         # bypass allowlist

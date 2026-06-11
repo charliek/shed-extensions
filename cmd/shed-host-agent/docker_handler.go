@@ -23,6 +23,13 @@ const (
 	// guest pulls the image anonymously — so it is recorded distinctly from a
 	// real error.
 	auditResultAnonymous = "anonymous"
+	// auditCodeApprovalDenied is the audit/feed code for a request the approval
+	// gate rejected — distinct from REGISTRY_NOT_ALLOWED, which is an allowlist
+	// deny. The guest still receives REGISTRY_NOT_ALLOWED for both (preserving
+	// its behavior); this code only disambiguates the cause on host/admin
+	// surfaces, where "you weren't approved" and "this registry isn't permitted"
+	// have different fixes.
+	auditCodeApprovalDenied = "APPROVAL_DENIED"
 )
 
 // DockerHandler processes Docker credential requests from the plugin message
@@ -97,14 +104,15 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 		return
 	}
 
-	// Approval gate (deny-all default fails closed).
-	outcome, err := h.approval.Approve(h.server, shedName, "Docker credentials request")
+	// Approval gate (deny-all default fails closed). The prompt names the
+	// registry so the shed-desktop approval card shows what is being requested.
+	outcome, err := h.approval.Approve(h.server, shedName, fmt.Sprintf("Docker credentials for %s", req.ServerURL))
 	if err != nil {
-		h.logger.Info("docker credentials denied by approval gate", "shed", shedName, "registry", req.ServerURL, "error", err)
+		h.logger.Info("docker credentials denied by approval gate", "shed", shedName, "registry", req.ServerURL, "code", auditCodeApprovalDenied, "error", err)
 		h.sendError(ctx, env, "approval denied", protocol.DockerCodeNotAllowed)
 		h.audit.LogEntry(AuditEntry{
 			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceDockerCredentials, Operation: protocol.DockerOpGet,
-			Result: "denied", Detail: req.ServerURL, Approval: h.approval.Method(),
+			Result: "denied", Detail: req.ServerURL, Code: auditCodeApprovalDenied, Reason: err.Error(), Approval: h.approval.Method(),
 			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
 		})
 		return
@@ -128,17 +136,20 @@ func (h *DockerHandler) handleGet(ctx context.Context, env *sdk.Envelope, shedNa
 		if code == protocol.DockerCodeNotFound {
 			result = auditResultAnonymous
 			h.logger.Info("no credential for allowed registry; guest pulls anonymously",
-				"server", h.server, "shed", shedName, "registry", req.ServerURL)
+				"server", h.server, "shed", shedName, "registry", req.ServerURL, "code", code)
 		} else {
-			h.logger.Error("get credentials failed", "error", err, "server", h.server, "shed", shedName, "registry", req.ServerURL)
+			h.logger.Error("get credentials failed", "error", err, "server", h.server, "shed", shedName, "registry", req.ServerURL, "code", code)
 		}
 
 		// The guest still receives the original error code; it decides how to act
-		// (anonymous fallback for not-found, hard fail otherwise).
+		// (anonymous fallback for not-found, hard fail otherwise). Code/Reason
+		// enrich the host/admin surfaces (durable log + shed-desktop). err is the
+		// broker's own message — it never contains raw helper stderr (that stays
+		// in the Debug log), so it is safe to surface here.
 		h.sendError(ctx, env, "credential request failed", code)
 		h.audit.LogEntry(AuditEntry{
 			Server: h.server, Shed: shedName, Namespace: protocol.NamespaceDockerCredentials, Operation: protocol.DockerOpGet,
-			Result: result, Detail: req.ServerURL, Approval: h.approval.Method(),
+			Result: result, Detail: req.ServerURL, Code: code, Reason: err.Error(), Approval: h.approval.Method(),
 			DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
 		})
 		return
