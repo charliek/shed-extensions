@@ -57,10 +57,12 @@ The host agent controls which registries are available to VMs via an allowlist:
 ```yaml
 docker:
   registries:
-    - docker.io
+    - index.docker.io   # Docker Hub (the hostname Docker sends for docker.io images)
     - ghcr.io
     - registry.acmeco.com
 ```
+
+Registry names must match the hostname Docker sends to the credential helper, after the broker strips the scheme and any trailing `/`, `/v1`, or `/v2`. The most common gotcha is **Docker Hub: list it as `index.docker.io`, not `docker.io`** — Docker requests Hub credentials for `https://index.docker.io/v1/`, which normalizes to `index.docker.io`. A bare `docker.io` entry does *not* match, and the pull fails with `REGISTRY_NOT_ALLOWED`.
 
 Or allow all registries:
 

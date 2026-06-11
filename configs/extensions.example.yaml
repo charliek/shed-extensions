@@ -96,8 +96,11 @@ aws:
 docker:
   # Registries the agent will broker credentials for. REQUIRED for Docker to
   # work (no Preferences UI for this). Defaults to Docker Hub + GitHub.
+  # NOTE: list Docker Hub as `index.docker.io` — Docker requests Hub creds for
+  # `https://index.docker.io/v1/`, which normalizes to `index.docker.io`. A bare
+  # `docker.io` entry will NOT match and pulls fail with REGISTRY_NOT_ALLOWED.
   registries:
-    - docker.io
+    - index.docker.io
     - ghcr.io
 
   # Set true to broker for ANY registry (bypasses the allowlist above).
