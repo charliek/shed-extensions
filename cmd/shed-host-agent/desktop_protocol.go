@@ -85,6 +85,8 @@ type eventMsg struct {
 	Op        string `json:"op,omitempty"`
 	Result    string `json:"result"`
 	Detail    string `json:"detail,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 	Approval  string `json:"approval,omitempty"`
 	DecidedBy string `json:"decided_by,omitempty"`
 	Scope     string `json:"scope,omitempty"`

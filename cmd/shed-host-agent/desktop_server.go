@@ -370,7 +370,7 @@ func (s *DesktopServer) forwardAudit(ctx context.Context, ch <-chan AuditEntry) 
 			ev := eventMsg{
 				V: desktopProtocolVersion, Type: "event", ID: newID(), Ts: entry.Timestamp,
 				Kind: "audit", Server: entry.Server, Shed: entry.Shed, Ns: entry.Namespace, Op: entry.Operation,
-				Result: entry.Result, Detail: entry.Detail, Approval: entry.Approval,
+				Result: entry.Result, Detail: entry.Detail, Code: entry.Code, Reason: entry.Reason, Approval: entry.Approval,
 				DecidedBy: entry.DecidedBy, Scope: entry.Scope, TTL: entry.TTL,
 			}
 			s.mu.Lock()
