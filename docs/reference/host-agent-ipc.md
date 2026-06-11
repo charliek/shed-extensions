@@ -84,7 +84,7 @@ Newline-delimited JSON, one typed envelope per line, max 1 MiB per frame.
 Protocol version (`v`) is **2**. A single consumer is active at a time
 (last writer wins — a new `hello` supersedes the previous connection).
 
-```
+```text
 app → agent:  hello, approval_response, pong
 agent → app:  hello_ack, approval_request, event, ping
 ```
