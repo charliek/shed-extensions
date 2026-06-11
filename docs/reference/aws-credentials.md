@@ -193,8 +193,8 @@ Credential requests use a 3-second timeout. On timeout, the proxy returns:
 ```json
 {
   "error": "credential request timed out",
-  "message": "shed-host-agent not reachable. Is it running on your Mac?",
-  "hint": "Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml"
+  "message": "shed-host-agent not reachable. Is it running on the host machine?",
+  "hint": "Ensure shed-host-agent is running on the host machine."
 }
 ```
 

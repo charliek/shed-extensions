@@ -42,8 +42,8 @@ func startTestServer(t *testing.T, timeoutMS int) (*DesktopServer, *AuditLogger,
 	t.Helper()
 	sock := shortSocketPath(t)
 	audit := NewAuditLogger(LogConfig{Enabled: false}, testLogger())
-	cfg := DesktopConfig{Enabled: true, SocketPath: sock, TimeoutMS: timeoutMS}
-	s := NewDesktopServer(cfg, audit, "test", []string{"ssh-agent", "aws-credentials"}, testLogger())
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	s := NewDesktopServer(sock, timeout, audit, "test", []string{"ssh-agent", "aws-credentials"}, testLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	go s.Listen(ctx)
 	deadline := time.Now().Add(2 * time.Second)
@@ -177,6 +177,12 @@ func TestDesktopApprove(t *testing.T) {
 	defer cancel()
 	conn, r := dialHello(t, s, sock)
 	defer conn.Close()
+
+	// The connected consumer's self-reported identity (from the hello) is what
+	// `status` surfaces in the approval-channel line.
+	if connected, client := s.ConsumerInfo(); !connected || client.Name != "t" || client.Version != "1" {
+		t.Fatalf("ConsumerInfo() = %v, %+v; want connected with name=t version=1", connected, client)
+	}
 
 	done := make(chan error, 1)
 	go func() {
@@ -320,26 +326,20 @@ func respond(t *testing.T, conn net.Conn, requestID, decision string) {
 	}
 }
 
-func TestDesktopConfigDefaults(t *testing.T) {
-	cfg := DefaultConfig()
-	if cfg.Desktop.Enabled {
-		t.Error("desktop should be disabled by default")
-	}
-	if cfg.Desktop.TimeoutMS != 25000 {
-		t.Errorf("default timeout = %d, want 25000", cfg.Desktop.TimeoutMS)
-	}
-	if cfg.Desktop.SocketPath == "" {
-		t.Error("default socket path should be set")
+func TestApprovalTimeoutDefault(t *testing.T) {
+	if got := DefaultConfig().ApprovalTimeout; got != "25s" {
+		t.Errorf("default approval_timeout = %q, want 25s", got)
 	}
 }
 
 func TestGateForMisconfigDenies(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.SSH.Approval.Policy = PolicyShedDesktop
-	// desktop.enabled false → desktop server nil → fail-closed deny gate.
+	// nil approval channel → fail-closed deny gate (defensive; the daemon always
+	// constructs one).
 	g := gateFor("ssh-agent", "sign", cfg.SSH.Approval, nil)
 	if _, err := g.Approve("srv", "stbot", "x"); err == nil {
-		t.Fatal("misconfigured shed-desktop policy should deny")
+		t.Fatal("shed-desktop policy with no channel should deny")
 	}
 }
 

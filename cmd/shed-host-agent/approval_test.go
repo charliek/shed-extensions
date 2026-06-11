@@ -47,6 +47,6 @@ func TestGateForSelectsByPolicy(t *testing.T) {
 func TestGateForShedDesktopNoChannelDenies(t *testing.T) {
 	g := gateFor("ssh-agent", "sign", ApprovalConfig{Policy: PolicyShedDesktop}, nil)
 	if _, err := g.Approve("srv", "shed", "x"); err == nil {
-		t.Error("shed-desktop policy with desktop.enabled=false should deny")
+		t.Error("shed-desktop policy with no approval channel should deny")
 	}
 }

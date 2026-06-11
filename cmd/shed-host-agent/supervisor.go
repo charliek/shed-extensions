@@ -168,7 +168,7 @@ func (s *Supervisor) Shutdown() {
 }
 
 // Health returns the running daemon's per-server connection snapshot for
-// `status --live`: each watched server with its per-namespace SDK subscription
+// `status`: each watched server with its per-namespace SDK subscription
 // state. Sorted by name. The supervisor lock is released before calling into
 // each client so a slow Status() can't stall reconciles.
 func (s *Supervisor) Health() []ServerHealth {

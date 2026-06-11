@@ -90,6 +90,9 @@ brews:
       To start shed-host-agent as a background service:
         brew services start shed-host-agent
 
+      Then verify it's running and see which config it loaded:
+        shed-host-agent status
+
       Logs: #{var}/log/shed-host-agent.log
     test: |
       system bin/"shed-host-agent", "version"

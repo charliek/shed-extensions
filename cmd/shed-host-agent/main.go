@@ -12,8 +12,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/charliek/shed-extensions/internal/protocol"
 	"github.com/charliek/shed-extensions/internal/version"
@@ -46,27 +48,24 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle status subcommand: a one-shot environment probe (config + desktop
-	// socket + per-server reachability), separate from running the daemon.
+	// Handle status subcommand: query the running daemon over its read-only
+	// status socket and print its authoritative self-report. It does not read
+	// the config file — the daemon owns the truth about what it loaded.
 	if flag.NArg() > 0 && flag.Arg(0) == "status" {
-		cfg, err := LoadConfig(*configPath)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "status: load config:", err)
-			os.Exit(1)
-		}
-		jsonOut, live := false, false
+		jsonOut := false
 		for _, a := range flag.Args()[1:] {
 			switch a {
 			case "--json", "-json":
 				jsonOut = true
 			case "--live", "-live":
-				live = true
+				fmt.Fprintln(os.Stderr, "status: --live was removed; `status` now always queries the running agent")
+				os.Exit(2)
+			default:
+				fmt.Fprintf(os.Stderr, "status: unknown argument %q\n", a)
+				os.Exit(2)
 			}
 		}
-		if live {
-			os.Exit(runStatusLive(cfg, jsonOut, os.Stdout))
-		}
-		os.Exit(runStatus(cfg, jsonOut, os.Stdout))
+		os.Exit(runStatus(jsonOut, os.Stdout))
 	}
 
 	logWriter := newLogWriter(*logFile)
@@ -78,11 +77,22 @@ func main() {
 
 	logger.Info("starting shed-host-agent", "version", version.FullInfo())
 
+	startedAt := time.Now().UTC().Format(time.RFC3339)
+
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
 		logger.Error("failed to load config", "path", *configPath, "error", err)
 		os.Exit(1)
 	}
+	// The absolute config path the daemon actually loaded, surfaced verbatim in
+	// `status` so a user can confirm which file is in effect (the original #29
+	// confusion). Best-effort: fall back to the tilde-expanded path.
+	resolvedConfigPath := expandTilde(*configPath)
+	if abs, err := filepath.Abs(resolvedConfigPath); err == nil {
+		resolvedConfigPath = abs
+	}
+	// approval_timeout was validated in LoadConfig; the duration is reusable here.
+	approvalTimeout, _ := cfg.ApprovalTimeoutDuration()
 
 	// Initialize audit logger (also fans entries out to the desktop channel)
 	audit := NewAuditLogger(cfg.Logging, logger)
@@ -110,20 +120,18 @@ func main() {
 
 	var wg sync.WaitGroup
 
-	// Optional shed-desktop approval delegation channel (feature-flagged off
-	// by default). When enabled, the agent serves a local UDS the app uses
-	// for the all-namespace audit/event stream and SSH approval decisions.
+	// Approval channel: always on. The agent serves a local UDS at a fixed path
+	// (sockets.go) that a single consumer — normally the shed-desktop app — uses
+	// for the all-namespace audit/event stream and shed-desktop-policy approval
+	// decisions. It's the program's public interface, so it's not gated on
+	// config; with no consumer connected, delegated approvals fail closed.
 	gateNamespaces := desktopGateNamespaces(cfg)
-	var desktop *DesktopServer
-	if cfg.Desktop.Enabled {
-		desktop = NewDesktopServer(cfg.Desktop, audit, version.FullInfo(), gateNamespaces, logger)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			desktop.Listen(ctx)
-		}()
-		logger.Info("shed-desktop approval channel enabled", "socket", cfg.Desktop.SocketPath)
-	}
+	desktop := NewDesktopServer(desktopSocketPath(), approvalTimeout, audit, version.FullInfo(), gateNamespaces, logger)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		desktop.Listen(ctx)
+	}()
 
 	// Build the per-extension approval gates now that the desktop channel (if
 	// any) exists. An empty/omitted policy resolves to deny-all (fail closed).
@@ -164,13 +172,16 @@ func main() {
 	}
 	sup := NewSupervisor(ctx, deps)
 
-	// Serve the read-only status socket so `shed-host-agent status --live` can
-	// query this daemon's live per-server connection state.
-	statusSock := statusSocketPath(cfg)
+	// Serve the read-only status socket so `shed-host-agent status` can query
+	// this daemon's authoritative self-report (config + policies + per-server
+	// connection state).
+	statusSock := statusSocketPath()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		serveStatusSocket(ctx, statusSock, func() LiveStatus { return buildLiveStatus(sup, version.FullInfo()) }, logger)
+		serveStatusSocket(ctx, statusSock, func() LiveStatus {
+			return buildLiveStatus(sup, desktop, cfg, resolvedConfigPath, startedAt, version.FullInfo())
+		}, logger)
 	}()
 
 	if cfg.Discovery != nil && cfg.Server != "" && cfg.Server != "http://localhost:8080" {

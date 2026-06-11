@@ -23,8 +23,7 @@ aws-credentials: ✓ connected (role: arn:aws:iam::123:role/dev, cached until 15
 ssh-agent:       ✓ connected (local-keys mode, 1 key available)
 aws-credentials: ✗ not connected (shed-host-agent not responding)
 
-Hint: start shed-host-agent on your Mac:
-  shed-host-agent --config ~/.config/shed/extensions.yaml
+Hint: ensure shed-host-agent is running on the host machine.
 ```
 
 ### Not Connected
@@ -33,8 +32,7 @@ Hint: start shed-host-agent on your Mac:
 ssh-agent:       ✗ not connected (shed-host-agent not responding)
 aws-credentials: ✗ not connected (shed-host-agent not responding)
 
-Hint: start shed-host-agent on your Mac:
-  shed-host-agent --config ~/.config/shed/extensions.yaml
+Hint: ensure shed-host-agent is running on the host machine.
 ```
 
 ## Exit Codes

@@ -57,6 +57,37 @@ func prepareSocketPath(path string) error {
 	return os.Remove(path)
 }
 
+// bindUnixSocket binds a fresh listener for one of the agent's sockets, applying
+// the shared safety ceremony: an owner-only parent dir, a refuse-to-clobber-live
+// prepare (prepareSocketPath), and a 0600 socket. Dir/perm failures are
+// best-effort (logged, non-fatal); a refused or failed bind is fatal and returns
+// nil. name prefixes the log lines (e.g. "desktop", "status socket").
+func bindUnixSocket(name, path string, logger *slog.Logger) net.Listener {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		logger.Warn(name+": could not create socket dir", "dir", dir, "error", err)
+	}
+	// Owner-only parent dir is the real protection (it covers the brief window
+	// before the socket Chmod); enforce it even if the dir already existed.
+	if err := os.Chmod(dir, 0700); err != nil {
+		logger.Warn(name+": could not restrict socket dir perms", "dir", dir, "error", err)
+	}
+	if err := prepareSocketPath(path); err != nil {
+		logger.Error(name+": refusing to bind", "path", path, "error", err)
+		return nil
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		logger.Error(name+": failed to listen", "path", path, "error", err)
+		return nil
+	}
+	if err := os.Chmod(path, 0600); err != nil {
+		logger.Warn(name+": could not set socket perms to 0600", "path", path, "error", err)
+	}
+	logger.Info(name+": socket listening", "path", path)
+	return ln
+}
+
 var (
 	errNoConsumer = errors.New("no shed-desktop connected")
 	errTimeout    = errors.New("approval timed out")
@@ -65,6 +96,7 @@ var (
 // consumerConn is the single active shed-desktop connection.
 type consumerConn struct {
 	conn    net.Conn
+	client  clientInfo // self-reported in the hello (name/version), for status
 	writeMu sync.Mutex
 }
 
@@ -96,11 +128,12 @@ type desktopDecision struct {
 	ttl       string
 }
 
-// DesktopServer exposes the UDS for shed-desktop: the all-namespace
+// DesktopServer exposes the approval channel UDS: the all-namespace
 // audit/event stream plus the approval request/response channel. Single
-// active consumer, last-writer-wins; fail-closed (deny) when none connected.
+// active consumer (normally the shed-desktop app), last-writer-wins;
+// fail-closed (deny) when none connected.
 type DesktopServer struct {
-	cfg            DesktopConfig
+	socketPath     string
 	audit          *AuditLogger
 	logger         *slog.Logger
 	timeout        time.Duration
@@ -121,16 +154,16 @@ type pendingReq struct {
 	owner *consumerConn
 }
 
-// NewDesktopServer builds a server. gateNamespaces are the credential namespaces
-// whose approval policy is shed-desktop (advertised to the app so it shows the
-// matching approval UI).
-func NewDesktopServer(cfg DesktopConfig, audit *AuditLogger, agentVersion string, gateNamespaces []string, logger *slog.Logger) *DesktopServer {
-	timeout := time.Duration(cfg.TimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 25 * time.Second
+// NewDesktopServer builds a server bound to socketPath. approvalTimeout bounds
+// each delegated approval before fail-closed deny (a non-positive value falls
+// back to 25s). gateNamespaces are the credential namespaces whose approval
+// policy is shed-desktop (advertised to the app so it shows the matching UI).
+func NewDesktopServer(socketPath string, approvalTimeout time.Duration, audit *AuditLogger, agentVersion string, gateNamespaces []string, logger *slog.Logger) *DesktopServer {
+	if approvalTimeout <= 0 {
+		approvalTimeout = 25 * time.Second
 	}
 	return &DesktopServer{
-		cfg: cfg, audit: audit, logger: logger, timeout: timeout, agentVersion: agentVersion,
+		socketPath: socketPath, audit: audit, logger: logger, timeout: approvalTimeout, agentVersion: agentVersion,
 		gateNamespaces: gateNamespaces,
 		pending:        make(map[string]pendingReq),
 		ringMax:        100,
@@ -139,29 +172,10 @@ func NewDesktopServer(cfg DesktopConfig, audit *AuditLogger, agentVersion string
 
 // Listen binds the socket and serves until ctx is cancelled.
 func (s *DesktopServer) Listen(ctx context.Context) {
-	dir := filepath.Dir(s.cfg.SocketPath)
-	_ = os.MkdirAll(dir, 0700)
-	// Owner-only parent dir is the real protection (it covers the brief window
-	// between Listen and the socket Chmod); enforce it even if the dir existed.
-	if err := os.Chmod(dir, 0700); err != nil {
-		s.logger.Warn("desktop: could not restrict socket dir perms", "dir", dir, "error", err)
-	}
-	// Prepare the path: remove a stale socket from a prior run, but refuse to
-	// bind over a live one (another agent) or a non-socket file — clobbering a
-	// live socket would orphan the other agent's listener.
-	if err := prepareSocketPath(s.cfg.SocketPath); err != nil {
-		s.logger.Error("desktop: refusing to bind", "path", s.cfg.SocketPath, "error", err)
+	ln := bindUnixSocket("desktop", s.socketPath, s.logger)
+	if ln == nil {
 		return
 	}
-	ln, err := net.Listen("unix", s.cfg.SocketPath)
-	if err != nil {
-		s.logger.Error("desktop: failed to listen", "path", s.cfg.SocketPath, "error", err)
-		return
-	}
-	if err := os.Chmod(s.cfg.SocketPath, 0600); err != nil {
-		s.logger.Warn("desktop: could not set socket perms to 0600", "path", s.cfg.SocketPath, "error", err)
-	}
-	s.logger.Info("desktop: approval socket listening", "path", s.cfg.SocketPath)
 
 	auditCh, unsub := s.audit.Subscribe(256)
 	defer unsub()
@@ -205,7 +219,7 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 	_ = json.Unmarshal(line, &hello)
 	_ = conn.SetReadDeadline(time.Time{})
 
-	c := &consumerConn{conn: conn}
+	c := &consumerConn{conn: conn, client: hello.Client}
 	// Send hello_ack BEFORE promoting, so RequestApproval can't route an
 	// approval_request to this connection before the handshake completes.
 	if err := c.send(helloAckMsg{
@@ -334,9 +348,20 @@ func (s *DesktopServer) demote(c *consumerConn) {
 // by tests to wait for promotion before driving an approval (promotion now
 // happens after the hello_ack write).
 func (s *DesktopServer) hasConsumer() bool {
+	connected, _ := s.ConsumerInfo()
+	return connected
+}
+
+// ConsumerInfo reports whether an app is currently connected and, if so, its
+// self-reported client identity (from the hello). Used by `status` to show who
+// owns the approval channel.
+func (s *DesktopServer) ConsumerInfo() (bool, clientInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.consumer != nil
+	if s.consumer == nil {
+		return false, clientInfo{}
+	}
+	return true, s.consumer.client
 }
 
 func (s *DesktopServer) resolve(requestID string, dec desktopDecision, from *consumerConn) {

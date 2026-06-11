@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -296,5 +297,57 @@ func TestResolveAllowPassword(t *testing.T) {
 				t.Errorf("resolveAllowPassword(%q) = %v, want %v", tt.policy, got, tt.want)
 			}
 		})
+	}
+}
+
+// writeConfig writes content to a temp config file and returns its path.
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A config that still sets the deprecated desktop.* keys must load without
+// error — they're warn-and-ignored, not rejected (so old configs keep working).
+func TestLoadConfigDeprecatedDesktopKeysIgnored(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, `
+server: http://localhost:8080
+desktop:
+  enabled: true
+  socket_path: ~/somewhere/else.sock
+  timeout_ms: 9000
+`))
+	if err != nil {
+		t.Fatalf("deprecated desktop keys should load, got: %v", err)
+	}
+	// Ignored: the budget comes from approval_timeout (defaulted), not timeout_ms.
+	if got, _ := cfg.ApprovalTimeoutDuration(); got != 25*time.Second {
+		t.Errorf("approval timeout = %v, want 25s (timeout_ms must be ignored)", got)
+	}
+}
+
+func TestApprovalTimeout(t *testing.T) {
+	// Omitted => defaults to 25s and validates.
+	if cfg, err := LoadConfig(writeConfig(t, "server: http://localhost:8080\n")); err != nil {
+		t.Fatalf("default config: %v", err)
+	} else if d, _ := cfg.ApprovalTimeoutDuration(); d != 25*time.Second {
+		t.Errorf("default approval timeout = %v, want 25s", d)
+	}
+
+	// Explicit valid value is parsed.
+	if cfg, err := LoadConfig(writeConfig(t, "approval_timeout: 40s\n")); err != nil {
+		t.Fatalf("valid approval_timeout: %v", err)
+	} else if d, _ := cfg.ApprovalTimeoutDuration(); d != 40*time.Second {
+		t.Errorf("approval timeout = %v, want 40s", d)
+	}
+
+	// Unparseable and non-positive values are rejected at load time.
+	for _, bad := range []string{"approval_timeout: nonsense\n", "approval_timeout: 0s\n", "approval_timeout: -5s\n"} {
+		if _, err := LoadConfig(writeConfig(t, bad)); err == nil {
+			t.Errorf("LoadConfig(%q) should fail validation", strings.TrimSpace(bad))
+		}
 	}
 }

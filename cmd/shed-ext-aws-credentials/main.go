@@ -38,7 +38,7 @@ func main() {
 		if err := proxy.Ping(2 * time.Second); err != nil {
 			logger.Warn("shed-host-agent not connected for namespace 'aws-credentials'",
 				"error", err,
-				"hint", "AWS operations will fail until shed-host-agent is running on your Mac. Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml",
+				"hint", "AWS operations will fail until shed-host-agent is running on the host machine.",
 			)
 			writeStatus("aws-credentials: not connected")
 		} else {
