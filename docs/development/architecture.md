@@ -60,9 +60,12 @@ sequenceDiagram
     SDK->>Proxy: GET /credentials
     Proxy->>Bus: publish(aws-credentials)
     Bus->>Host: SSE event
-    alt Cache hit
+    alt passthrough mode
+        Host->>Host: re-read source profile session creds
+        Host-->>Bus: session credentials (no AssumeRole, no cache)
+    else assume-role, cache hit
         Host-->>Bus: cached credentials
-    else Cache miss
+    else assume-role, cache miss
         Host->>STS: AssumeRole
         STS-->>Host: temp credentials
         Host-->>Bus: fresh credentials

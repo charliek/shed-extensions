@@ -90,8 +90,10 @@ there is no shed-desktop Preferences UI for them.
 | `aws.cache_refresh_before` | string | `5m` | Refresh cached credentials when less than this time remains (assume-role mode) |
 | `aws.servers.<server>.default_role` | string | | Per-server role default (multi-server mode) |
 | `aws.servers.<server>.mode` | string | | Per-server mode override |
+| `aws.servers.<server>.session_duration` | string | | Per-server session token lifetime (assume-role mode) |
 | `aws.servers.<server>.sheds.<shed>.role` | string | | Per-server, per-shed role override (most specific) |
 | `aws.servers.<server>.sheds.<shed>.mode` | string | | Per-server, per-shed mode override (most specific) |
+| `aws.servers.<server>.sheds.<shed>.session_duration` | string | | Per-server, per-shed session token lifetime (most specific) |
 
 ### Docker Settings
 
@@ -196,9 +198,9 @@ docker:
 ```
 
 Resolution order (later overrides earlier): top-level defaults →
-`…servers.<server>` → `…servers.<server>.sheds.<shed>`. For AWS, `role` and
-`mode` layer independently (a `mode: passthrough` inherited from a parent makes a
-shed's `role` irrelevant). For Docker, a non-`null` `registries` list
+`…servers.<server>` → `…servers.<server>.sheds.<shed>`. For AWS, `role`, `mode`,
+and `session_duration` layer independently (a `mode: passthrough` inherited from
+a parent makes a shed's `role` irrelevant). For Docker, a non-`null` `registries` list
 **replaces** (does not merge) the inherited list, and `allow_all` is only
 overridden when explicitly set at a more specific level.
 

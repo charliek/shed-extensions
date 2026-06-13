@@ -55,7 +55,7 @@ The SDK handles refresh automatically — when credentials approach expiration, 
 
 ## Role Configuration
 
-Each shed maps to a specific IAM role via host-side configuration. The VM doesn't get to choose which role it receives.
+In the default **assume-role mode**, each shed maps to a specific IAM role via host-side configuration. The VM doesn't get to choose which role it receives. (For SSO/SAML setups where no assumable role exists, see [Passthrough mode](#passthrough-mode-ssosaml), which needs no role.)
 
 ```yaml
 aws:
@@ -73,7 +73,7 @@ aws:
 
 ## Passthrough mode (SSO/SAML)
 
-AssumeRole requires a role the host's source session is allowed to assume. In **SSO/SAML environments there often is no such role** — the application's real role is an instance/service role (trusted only by a service principal), or the developer's own credentials came from `sts:AssumeRoleWithSAML`, and neither can be re-assumed with plain `sts:AssumeRole`.
+AssumeRole requires a role the host's source session is allowed to assume. In **SSO/SAML environments there is often no such role** — the application's real role is an instance/service role (trusted only by a service principal), or the developer's own credentials came from `sts:AssumeRoleWithSAML`, and neither can be re-assumed with plain `sts:AssumeRole`.
 
 Passthrough mode skips `AssumeRole` and vends the `source_profile`'s **existing session credentials** directly. SSO/SAML CLI helpers conventionally write those temporary credentials to the standard `~/.aws/credentials` file, so nothing new is needed to obtain them.
 

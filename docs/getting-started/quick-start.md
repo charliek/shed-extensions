@@ -131,7 +131,7 @@ aws:
 2. `shed-ext-aws-credentials` sends the request through the message bus
 3. `shed-host-agent` calls `sts:AssumeRole` (or returns cached credentials), or in passthrough mode vends your source profile's session credentials directly
 4. Temporary credentials flow back — SDK call succeeds
-5. Credentials expire in 1 hour; SDK handles automatic refresh
+5. In assume-role mode the credentials expire in ~1 hour and the SDK refreshes automatically; in passthrough mode they last as long as your source session and the agent re-reads it (re-run your SSO login to refresh)
 
 ### Docker Flow
 

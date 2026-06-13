@@ -118,7 +118,7 @@ func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *sdk.Envelope
 		Result: "ok", Detail: awsExpiryDetail(creds.Expiration), Approval: h.approval.Method(),
 		DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
 	})
-	h.logger.Debug("credentials served", "server", h.server, "shed", shedName, "expires", creds.Expiration)
+	h.logger.Debug("credentials served", "server", h.server, "shed", shedName, "expires", awsExpiryDetail(creds.Expiration))
 }
 
 func (h *AWSHandler) handlePing(ctx context.Context, env *sdk.Envelope, shedName string) {
