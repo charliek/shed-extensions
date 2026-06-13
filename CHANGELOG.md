@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.4.1
+
+### Added
+
+- **Pinned-TLS + scoped bearer-token support in the host-agent.** When a shed
+  server is registered with an `api_url` (https), a `tls_cert_fingerprint`, and
+  a `credentials_token`, the host-agent connects to the credential bus over
+  pinned TLS and authenticates with the scoped token — so the bus can run on a
+  public-internet VPS. A rotated token or a newly-added pin is picked up live:
+  the supervisor re-dials on any credential change. Servers registered with a
+  plain `http` URL and no pin/token behave exactly as before
+  ([#35](https://github.com/charliek/shed-extensions/pull/35)).
+
+### Changed
+
+- Pinned `github.com/charliek/shed/sdk` to the released `v0.2.0` (which adds
+  `WithTLSPin` / `WithToken`), replacing the dev-time local `replace`.
+
 ## v0.4.0
 
 ### Breaking Changes
