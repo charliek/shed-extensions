@@ -45,6 +45,7 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 		sdk.WithServerURL(t.URL),
 		sdk.WithLogger(log),
 		sdk.WithToken(t.Token),
+		sdk.WithTLSPin(t.TLSFingerprint),
 	)
 
 	var wg sync.WaitGroup

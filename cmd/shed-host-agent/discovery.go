@@ -23,6 +23,12 @@ type shedServerEntry struct {
 	// CredentialsToken is the bearer token the host-agent sends to the
 	// credential bus. Matches the shed CLI's credentials_token field.
 	CredentialsToken string `yaml:"credentials_token,omitempty"`
+	// APIURL, when set, is the https control-plane/bus URL and overrides
+	// host+http_port. Matches the shed CLI's api_url field.
+	APIURL string `yaml:"api_url,omitempty"`
+	// TLSCertFingerprint pins the server's self-signed TLS cert
+	// ("sha256:<hex>"). Matches the shed CLI's tls_cert_fingerprint field.
+	TLSCertFingerprint string `yaml:"tls_cert_fingerprint,omitempty"`
 }
 
 // defaultShedHTTPPort matches shed's default server HTTP port.
@@ -69,14 +75,21 @@ func LoadDiscoveredServers(path string) ([]ServerTarget, error) {
 		if entry.Host == "" {
 			continue
 		}
-		port := entry.HTTPPort
-		if port == 0 {
-			port = defaultShedHTTPPort
+		// Prefer the explicit api_url (carries the https scheme + port) over
+		// the legacy host+http_port plain-HTTP form.
+		url := entry.APIURL
+		if url == "" {
+			port := entry.HTTPPort
+			if port == 0 {
+				port = defaultShedHTTPPort
+			}
+			url = fmt.Sprintf("http://%s:%d", entry.Host, port)
 		}
 		targets = append(targets, ServerTarget{
-			Name:  name,
-			URL:   fmt.Sprintf("http://%s:%d", entry.Host, port),
-			Token: entry.CredentialsToken,
+			Name:           name,
+			URL:            url,
+			Token:          entry.CredentialsToken,
+			TLSFingerprint: entry.TLSCertFingerprint,
 		})
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].Name < targets[j].Name })
