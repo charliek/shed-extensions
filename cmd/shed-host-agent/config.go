@@ -217,18 +217,35 @@ func (d DockerConfig) Resolve(server, shed string) ResolvedDocker {
 	return r
 }
 
+// AWS credential vending modes. Mode selects how the agent obtains the creds it
+// vends for a shed:
+//
+//	assume-role (default) — sts:AssumeRole from SourceProfile into the resolved
+//	                        role, vending the short-lived STS session.
+//	passthrough           — vend SourceProfile's existing session credentials
+//	                        directly (no AssumeRole), for SSO/SAML setups where
+//	                        no assumable role exists. Any resolved role is ignored.
+//
+// An empty mode means assume-role (back-compat).
+const (
+	AWSModeAssumeRole  = "assume-role"
+	AWSModePassthrough = "passthrough"
+)
+
 // AWSConfig controls the AWS credential handler behavior. The top-level fields
 // are the defaults; Servers carries per-server (and per-shed) overrides layered
-// over them. SourceProfile and CacheRefreshBefore are process-global (a single
-// STS client is built from SourceProfile) and are not overridable per server.
+// over them. SourceProfile and CacheRefreshBefore are process-global and are not
+// overridable per server.
 type AWSConfig struct {
 	SourceProfile      string         `yaml:"source_profile"`
 	DefaultRole        string         `yaml:"default_role"`
+	Mode               string         `yaml:"mode"` // "" (=assume-role) | assume-role | passthrough
 	SessionDuration    string         `yaml:"session_duration"`
 	CacheRefreshBefore string         `yaml:"cache_refresh_before"`
 	Approval           ApprovalConfig `yaml:"approval"`
-	// Sheds is a deprecated global per-shed override map (applies regardless of
-	// server). Prefer Servers.<name>.sheds.<name>. Kept for back-compat.
+	// Sheds is the removed global per-shed override map. It is parsed only so
+	// Validate can reject configs that still set it with a migration message; it
+	// no longer affects resolution. Use Servers.<name>.sheds.<name> instead.
 	Sheds map[string]ShedAWSConfig `yaml:"sheds"`
 	// Servers holds per-server overrides, each optionally with per-shed nesting.
 	Servers map[string]AWSServerConfig `yaml:"servers"`
@@ -237,6 +254,7 @@ type AWSConfig struct {
 // AWSServerConfig holds per-server AWS overrides.
 type AWSServerConfig struct {
 	DefaultRole     string                   `yaml:"default_role"`
+	Mode            string                   `yaml:"mode"`
 	SessionDuration string                   `yaml:"session_duration"`
 	Sheds           map[string]ShedAWSConfig `yaml:"sheds"`
 }
@@ -244,31 +262,30 @@ type AWSServerConfig struct {
 // ShedAWSConfig holds per-shed AWS overrides.
 type ShedAWSConfig struct {
 	Role            string `yaml:"role"`
+	Mode            string `yaml:"mode"`
 	SessionDuration string `yaml:"session_duration"`
 }
 
 // ResolvedAWS is the effective AWS policy for a single (server, shed) pair.
 type ResolvedAWS struct {
 	Role            string // assumed-role ARN ("" => no role configured)
+	Mode            string // AWSModeAssumeRole | AWSModePassthrough (never "")
 	SessionDuration string // "" => fall back to the backend default
 }
 
 // Resolve layers AWS overrides for a (server, shed) pair, most specific wins:
-// top-level defaults -> deprecated global Sheds[shed] -> Servers[server] ->
-// Servers[server].Sheds[shed].
+// top-level defaults -> Servers[server] -> Servers[server].Sheds[shed]. Role,
+// Mode, and SessionDuration each layer independently; an empty Mode means "no
+// override" while layering and is normalized to AWSModeAssumeRole at the end
+// (so a child that only sets a role under a passthrough parent stays passthrough).
 func (a AWSConfig) Resolve(server, shed string) ResolvedAWS {
-	r := ResolvedAWS{Role: a.DefaultRole, SessionDuration: a.SessionDuration}
-	if sc, ok := a.Sheds[shed]; ok {
-		if sc.Role != "" {
-			r.Role = sc.Role
-		}
-		if sc.SessionDuration != "" {
-			r.SessionDuration = sc.SessionDuration
-		}
-	}
+	r := ResolvedAWS{Role: a.DefaultRole, Mode: a.Mode, SessionDuration: a.SessionDuration}
 	if sv, ok := a.Servers[server]; ok {
 		if sv.DefaultRole != "" {
 			r.Role = sv.DefaultRole
+		}
+		if sv.Mode != "" {
+			r.Mode = sv.Mode
 		}
 		if sv.SessionDuration != "" {
 			r.SessionDuration = sv.SessionDuration
@@ -277,31 +294,39 @@ func (a AWSConfig) Resolve(server, shed string) ResolvedAWS {
 			if sc.Role != "" {
 				r.Role = sc.Role
 			}
+			if sc.Mode != "" {
+				r.Mode = sc.Mode
+			}
 			if sc.SessionDuration != "" {
 				r.SessionDuration = sc.SessionDuration
 			}
 		}
 	}
+	r.Mode = normalizeAWSMode(r.Mode)
 	return r
 }
 
-// HasAnyRole reports whether any role is configured at any level — used to
-// decide whether the AWS handler should start at all.
-func (a AWSConfig) HasAnyRole() bool {
-	if a.DefaultRole != "" {
+// normalizeAWSMode maps an empty mode to the assume-role default.
+func normalizeAWSMode(mode string) string {
+	if mode == "" {
+		return AWSModeAssumeRole
+	}
+	return mode
+}
+
+// Enabled reports whether the AWS handler should start at all: true if any
+// resolution path selects passthrough mode or configures a non-empty role. An
+// explicit assume-role with no role anywhere is "AWS off" (false).
+func (a AWSConfig) Enabled() bool {
+	if a.Mode == AWSModePassthrough || a.DefaultRole != "" {
 		return true
 	}
-	for _, s := range a.Sheds {
-		if s.Role != "" {
-			return true
-		}
-	}
 	for _, sv := range a.Servers {
-		if sv.DefaultRole != "" {
+		if sv.Mode == AWSModePassthrough || sv.DefaultRole != "" {
 			return true
 		}
 		for _, s := range sv.Sheds {
-			if s.Role != "" {
+			if s.Mode == AWSModePassthrough || s.Role != "" {
 				return true
 			}
 		}
@@ -439,6 +464,9 @@ func (c Config) Validate() error {
 	if err := validatePolicy("docker", c.Docker.Approval.Policy, credAllowed); err != nil {
 		return err
 	}
+	if err := c.AWS.validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -452,6 +480,40 @@ func validatePolicy(provider, policy string, allowed []string) error {
 		}
 	}
 	return fmt.Errorf("%s.approval.policy %q is not one of %s", provider, policy, strings.Join(allowed, ", "))
+}
+
+// validate checks AWS-specific config: the removed global aws.sheds map is
+// rejected with migration guidance (fail-closed — silently ignoring it could
+// over-grant by falling back to default_role), and every mode field must be a
+// known value.
+func (a AWSConfig) validate() error {
+	if len(a.Sheds) > 0 {
+		return fmt.Errorf("aws.sheds was removed; move entries under aws.servers.<server>.sheds.<shed>")
+	}
+	if err := validateMode("aws.mode", a.Mode); err != nil {
+		return err
+	}
+	for name, sv := range a.Servers {
+		if err := validateMode(fmt.Sprintf("aws.servers.%s.mode", name), sv.Mode); err != nil {
+			return err
+		}
+		for shed, sc := range sv.Sheds {
+			if err := validateMode(fmt.Sprintf("aws.servers.%s.sheds.%s.mode", name, shed), sc.Mode); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateMode allows an empty value (meaning assume-role) or a known mode.
+func validateMode(field, mode string) error {
+	switch mode {
+	case "", AWSModeAssumeRole, AWSModePassthrough:
+		return nil
+	default:
+		return fmt.Errorf("%s %q is not one of %s, %s", field, mode, AWSModeAssumeRole, AWSModePassthrough)
+	}
 }
 
 // DefaultDiscoverySource is the shed CLI client config the agent discovers

@@ -87,6 +87,86 @@ func TestAWSHandlerGetCredentials(t *testing.T) {
 	}
 }
 
+// runAWSCredsRequest drives one get_credentials round-trip through the handler
+// and returns the raw response payload the host posted back.
+func runAWSCredsRequest(t *testing.T, backend AWSBackend, gate ApprovalGate) json.RawMessage {
+	t.Helper()
+	respondCalled := make(chan json.RawMessage, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			req := protocol.AWSCredentialsRequest{Operation: protocol.AWSOpGetCredentials}
+			payload, _ := json.Marshal(req)
+			env := sdk.NewEnvelope(protocol.NamespaceAWSCredentials, sdk.MessageTypeRequest, payload)
+			env.Shed = &sdk.ShedInfo{Name: "test-shed"}
+			data, _ := json.Marshal(env)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher := w.(http.Flusher)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			<-r.Context().Done()
+		case http.MethodPost:
+			var env sdk.Envelope
+			json.NewDecoder(r.Body).Decode(&env)
+			w.WriteHeader(http.StatusNoContent)
+			respondCalled <- env.Payload
+		}
+	}))
+	defer srv.Close()
+
+	client := sdk.NewHostClient(sdk.WithServerURL(srv.URL))
+	logger := slog.Default()
+	audit := &AuditLogger{logger: logger}
+	handler := NewAWSHandler(backend, client, gate, audit, "test-server", logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go handler.Run(ctx)
+
+	select {
+	case payload := <-respondCalled:
+		return payload
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for response")
+		return nil
+	}
+}
+
+// A passthrough vend with no expiry hint must omit the expiration field entirely
+// (so the guest SDK treats the creds as non-expiring), not send year-0001 or "".
+func TestAWSHandlerOmitsExpirationWhenZero(t *testing.T) {
+	backend := &mockAWSBackend{
+		creds: &AWSCachedCredentials{
+			AccessKeyID:     "AK",
+			SecretAccessKey: "SK",
+			SessionToken:    "TK",
+		},
+	}
+	payload := runAWSCredsRequest(t, backend, &noopGate{})
+
+	var raw map[string]any
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := raw["expiration"]; present {
+		t.Errorf("expiration key should be absent for zero expiry, got payload %s", payload)
+	}
+	if raw["access_key_id"] != "AK" {
+		t.Errorf("access_key_id: got %v", raw["access_key_id"])
+	}
+}
+
+func TestAWSExpiryDetail(t *testing.T) {
+	if got := awsExpiryDetail(time.Time{}); got != "expires:none" {
+		t.Errorf("zero expiry: got %q, want expires:none", got)
+	}
+	exp := time.Date(2026, 3, 31, 19, 5, 0, 0, time.UTC)
+	if got := awsExpiryDetail(exp); got != "expires:19:05" {
+		t.Errorf("non-zero expiry: got %q, want expires:19:05", got)
+	}
+}
+
 func TestAWSHandlerPing(t *testing.T) {
 	backend := &mockAWSBackend{}
 	respondCalled := make(chan json.RawMessage, 1)

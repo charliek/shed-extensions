@@ -22,7 +22,9 @@ type awsSDKResponse struct {
 	AccessKeyID     string `json:"AccessKeyId"`
 	SecretAccessKey string `json:"SecretAccessKey"`
 	Token           string `json:"Token"`
-	Expiration      string `json:"Expiration"`
+	// Expiration is omitted when empty so the guest AWS SDK treats the creds as
+	// non-expiring (and re-fetches on a 403) rather than failing to parse "".
+	Expiration string `json:"Expiration,omitempty"`
 }
 
 // awsSDKErrorResponse is returned on errors with an actionable message.

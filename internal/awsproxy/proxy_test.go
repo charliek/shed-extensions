@@ -77,6 +77,43 @@ func TestHandleCredentials(t *testing.T) {
 	}
 }
 
+func TestHandleCredentialsOmitsEmptyExpiration(t *testing.T) {
+	// Passthrough without an expiry hint sends no expiration; the guest response
+	// must omit "Expiration" entirely (an empty string can't be parsed into a
+	// time, but an absent field means non-expiring).
+	creds := protocol.AWSCredentialsResponse{
+		AccessKeyID:     "ASIAIOSFODNN7EXAMPLE",
+		SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		SessionToken:    "FwoGZXIvYXdzE...",
+	}
+	publishSrv := newMockPublishServer(t, func(_ json.RawMessage) json.RawMessage {
+		data, _ := json.Marshal(creds)
+		return data
+	})
+	defer publishSrv.Close()
+
+	proxy := New(WithPublishURL(publishSrv.URL + "/v1/publish"))
+
+	req := httptest.NewRequest(http.MethodGet, "/credentials", nil)
+	w := httptest.NewRecorder()
+	proxy.HandleCredentials(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var rawMap map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &rawMap); err != nil {
+		t.Fatalf("unmarshal raw JSON: %v", err)
+	}
+	if _, present := rawMap["Expiration"]; present {
+		t.Errorf("Expiration must be omitted for non-expiring creds, body=%s", w.Body.String())
+	}
+	if rawMap["AccessKeyId"] != creds.AccessKeyID {
+		t.Errorf("AccessKeyId: got %v, want %q", rawMap["AccessKeyId"], creds.AccessKeyID)
+	}
+}
+
 func TestHandleCredentialsErrorResponse(t *testing.T) {
 	publishSrv := newMockPublishServer(t, func(_ json.RawMessage) json.RawMessage {
 		resp := protocol.AWSErrorResponse{

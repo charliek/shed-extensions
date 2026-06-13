@@ -27,7 +27,10 @@ type AWSCredentialsResponse struct {
 	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key"`
 	SessionToken    string `json:"session_token"`
-	Expiration      string `json:"expiration"` // RFC3339
+	// Expiration is RFC3339; an empty/omitted value means the credentials are
+	// non-expiring as far as the guest is concerned (it discovers expiry on a
+	// 403). Passthrough mode omits it when the source profile has no expiry hint.
+	Expiration string `json:"expiration,omitempty"`
 }
 
 // AWSPingRequest is the payload for a health check ping.

@@ -2,7 +2,40 @@
 
 ## Unreleased
 
+### Breaking Changes
+
+- **Removed the deprecated global `aws.sheds` map.** Per-shed AWS role overrides
+  now live only under `aws.servers.<server>.sheds.<shed>`. A config that still
+  sets a top-level `aws.sheds` is now **rejected at startup** with a migration
+  message — rather than silently ignored, which could fall back to a broader
+  `default_role` and over-grant. Migrate:
+
+  ```yaml
+  # before
+  aws:
+    sheds:
+      web: { role: arn:aws:iam::123456789012:role/web }
+
+  # after
+  aws:
+    servers:
+      mini2:
+        sheds:
+          web: { role: arn:aws:iam::123456789012:role/web }
+  ```
+
 ### Features
+
+- **Opt-in AWS `passthrough` mode for SSO/SAML** (#33) — a new `aws.mode`
+  (`assume-role` default | `passthrough`) lets the agent vend the
+  `source_profile`'s existing session credentials directly, skipping
+  `sts:AssumeRole`, for environments where no assumable role exists (the real
+  role is an instance/service role, or creds came from `AssumeRoleWithSAML`).
+  `mode` layers per server/shed like `role`. Passthrough re-reads
+  `~/.aws/credentials` on every request — so re-running your SSO login is picked
+  up with no restart — and parses the `aws_session_expiration` /
+  `x_security_token_expires` hint for accurate expiry, omitting `Expiration` when
+  absent so the guest discovers expiry on a 403.
 
 - **Audit failure code + reason** — a docker credential `get` that fails now
   records a machine-readable `code` (e.g. `REGISTRY_NOT_ALLOWED`,

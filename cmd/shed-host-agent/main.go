@@ -139,7 +139,7 @@ func main() {
 	// AWS and Docker are optional — a missing/unconfigured backend stays nil and
 	// its handler simply isn't started for any server.
 	var awsBackend AWSBackend
-	if b, err := NewSTSBackend(ctx, cfg.AWS, logger); err != nil {
+	if b, err := NewSTSBackend(cfg.AWS, logger); err != nil {
 		logger.Warn("AWS handler disabled", "error", err)
 	} else {
 		awsBackend = b

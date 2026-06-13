@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,11 +79,13 @@ aws:
   cache_refresh_before: 10m
   approval:
     policy: approve-all
-  sheds:
-    my-service:
-      role: arn:aws:iam::123456789012:role/my-service
-    tests:
-      role: arn:aws:iam::123456789012:role/readonly
+  servers:
+    mini2:
+      sheds:
+        sso-app:
+          mode: passthrough
+        my-service:
+          role: arn:aws:iam::123456789012:role/my-service
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -99,12 +102,53 @@ aws:
 	if cfg.AWS.DefaultRole != "arn:aws:iam::123456789012:role/dev" {
 		t.Errorf("aws.default_role: got %q", cfg.AWS.DefaultRole)
 	}
-	if len(cfg.AWS.Sheds) != 2 {
-		t.Fatalf("aws.sheds: got %d entries, want 2", len(cfg.AWS.Sheds))
+	sheds := cfg.AWS.Servers["mini2"].Sheds
+	if got := sheds["sso-app"].Mode; got != AWSModePassthrough {
+		t.Errorf("aws.servers.mini2.sheds.sso-app.mode: got %q, want passthrough", got)
 	}
-	if cfg.AWS.Sheds["my-service"].Role != "arn:aws:iam::123456789012:role/my-service" {
-		t.Errorf("aws.sheds.my-service.role: got %q", cfg.AWS.Sheds["my-service"].Role)
+	if got := sheds["my-service"].Role; got != "arn:aws:iam::123456789012:role/my-service" {
+		t.Errorf("aws.servers.mini2.sheds.my-service.role: got %q", got)
 	}
+}
+
+func TestValidateAWS(t *testing.T) {
+	t.Run("rejects removed aws.sheds with migration message", func(t *testing.T) {
+		c := Config{AWS: AWSConfig{Sheds: map[string]ShedAWSConfig{"web": {Role: "arn:aws:iam::123:role/web"}}}}
+		err := c.Validate()
+		if err == nil || !strings.Contains(err.Error(), "aws.sheds was removed") {
+			t.Fatalf("expected migration error, got %v", err)
+		}
+	})
+
+	t.Run("rejects unknown top-level mode", func(t *testing.T) {
+		c := Config{AWS: AWSConfig{Mode: "bogus"}}
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "aws.mode") {
+			t.Fatalf("expected aws.mode error, got %v", err)
+		}
+	})
+
+	t.Run("names the offending per-shed mode location", func(t *testing.T) {
+		c := Config{AWS: AWSConfig{Servers: map[string]AWSServerConfig{"mini2": {
+			Sheds: map[string]ShedAWSConfig{"web": {Mode: "nope"}},
+		}}}}
+		err := c.Validate()
+		if err == nil || !strings.Contains(err.Error(), "aws.servers.mini2.sheds.web.mode") {
+			t.Fatalf("expected located mode error, got %v", err)
+		}
+	})
+
+	t.Run("accepts valid modes at every level", func(t *testing.T) {
+		c := Config{AWS: AWSConfig{
+			Mode: AWSModePassthrough,
+			Servers: map[string]AWSServerConfig{"mini2": {
+				Mode:  AWSModeAssumeRole,
+				Sheds: map[string]ShedAWSConfig{"web": {Mode: AWSModePassthrough}},
+			}},
+		}}
+		if err := c.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestLoadConfigDefaults(t *testing.T) {
