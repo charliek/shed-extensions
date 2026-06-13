@@ -44,6 +44,7 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	client := sdk.NewHostClient(
 		sdk.WithServerURL(t.URL),
 		sdk.WithLogger(log),
+		sdk.WithToken(t.Token),
 	)
 
 	var wg sync.WaitGroup

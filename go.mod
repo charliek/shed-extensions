@@ -28,3 +28,5 @@ require (
 	github.com/aws/smithy-go v1.24.2 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 )
+
+replace github.com/charliek/shed/sdk => ../shed/sdk

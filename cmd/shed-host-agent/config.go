@@ -129,6 +129,9 @@ func (s ServerSelector) Selected(name string) bool {
 type ServerTarget struct {
 	Name string
 	URL  string
+	// Token is the credentials-scoped bearer token sent to the shed-server
+	// credential bus. Empty when the server isn't token-gated.
+	Token string
 }
 
 // ResolveTargets computes the desired set of servers to watch. In single-server

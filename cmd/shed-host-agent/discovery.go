@@ -20,6 +20,9 @@ type shedClientConfig struct {
 type shedServerEntry struct {
 	Host     string `yaml:"host"`
 	HTTPPort int    `yaml:"http_port"`
+	// CredentialsToken is the bearer token the host-agent sends to the
+	// credential bus. Matches the shed CLI's credentials_token field.
+	CredentialsToken string `yaml:"credentials_token,omitempty"`
 }
 
 // defaultShedHTTPPort matches shed's default server HTTP port.
@@ -71,8 +74,9 @@ func LoadDiscoveredServers(path string) ([]ServerTarget, error) {
 			port = defaultShedHTTPPort
 		}
 		targets = append(targets, ServerTarget{
-			Name: name,
-			URL:  fmt.Sprintf("http://%s:%d", entry.Host, port),
+			Name:  name,
+			URL:   fmt.Sprintf("http://%s:%d", entry.Host, port),
+			Token: entry.CredentialsToken,
 		})
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].Name < targets[j].Name })
