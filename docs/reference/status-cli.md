@@ -56,4 +56,4 @@ Hint: start shed-host-agent on your Mac:
 The status command queries each namespace with a `status` operation (2-second timeout per namespace):
 
 - **SSH agent**: Reports backend mode (`agent-forward` or `local-keys`) and number of available keys
-- **AWS credentials**: Reports configured IAM role and credential cache expiration time
+- **AWS credentials**: Reports the configured IAM role and cache expiration (assume-role mode), or `passthrough:<profile>` and the session expiry when known (passthrough mode)

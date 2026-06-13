@@ -67,28 +67,38 @@ ssh:
 # AWS credential vending
 # ---------------------------------------------------------------------------
 aws:
-  # Local AWS profile the agent assumes roles from.
+  # Local AWS profile the agent uses: the AssumeRole source, or (in passthrough
+  # mode) the profile whose session credentials are vended directly.
   source_profile: default
 
-  # The IAM role to assume. REQUIRED for AWS to work — there is no Preferences
-  # UI for this, so set it here. Without a role, requests error.
+  # mode selects how credentials are obtained:
+  #   assume-role (default) — sts:AssumeRole from source_profile into default_role.
+  #   passthrough           — vend source_profile's existing SSO/SAML session creds
+  #                           directly, no AssumeRole (no role needed). Re-run your
+  #                           SSO login to refresh; the agent re-reads the file.
+  # mode: assume-role
+
+  # The IAM role to assume (assume-role mode). REQUIRED for assume-role to work —
+  # there is no Preferences UI for this, so set it here.
   # default_role: arn:aws:iam::123456789012:role/acmeco-dev
   # session_duration: 1h
   # cache_refresh_before: 5m
 
   approval:
-    # AWS is OFF by default. To turn it on: set default_role above, then change
-    # this to `approve-all` (vend without a prompt) or `shed-desktop` (toggle
-    # Allow/Deny live in the app).
+    # AWS is OFF by default. To turn it on: set default_role (assume-role) or
+    # mode: passthrough above, then change this to `approve-all` (vend without a
+    # prompt) or `shed-desktop` (toggle Allow/Deny live in the app).
     policy: deny-all
 
-  # Per-server / per-shed role overrides (most specific wins). See docs.
+  # Per-server / per-shed role and mode overrides (most specific wins). See docs.
   # servers:
   #   mini2:
   #     default_role: arn:aws:iam::123456789012:role/acmeco-mini2
   #     sheds:
   #       web:
   #         role: arn:aws:iam::123456789012:role/acmeco-web
+  #       sso-app:
+  #         mode: passthrough
 
 # ---------------------------------------------------------------------------
 # Docker registry credential brokering

@@ -97,7 +97,7 @@ Expected output:
 ```
 
 Point out:
-- The session name includes the shed name for CloudTrail traceability
+- The session name includes the server and shed name for CloudTrail traceability
 - The credentials are temporary (1-hour STS tokens)
 - Check the audit log — you'll see a `get_credentials` entry
 

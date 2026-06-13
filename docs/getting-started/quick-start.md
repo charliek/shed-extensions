@@ -96,20 +96,24 @@ docker pull us-docker.pkg.dev/your-project/your-repo/your-image:tag
 
 Credentials are resolved from your host machine's Docker credential store. No `docker login` needed inside the VM.
 
-## Per-Shed Role Overrides
+## Per-Shed Role and Mode Overrides
 
-Different sheds can assume different IAM roles:
+Different sheds can assume different IAM roles — and SSO/SAML setups with no
+assumable role can vend the source profile's session credentials directly with
+`mode: passthrough` (see [AWS Credentials](../reference/aws-credentials.md#passthrough-mode-ssosaml)):
 
 ```yaml
 aws:
   source_profile: default
   default_role: arn:aws:iam::123456789012:role/dev
 
-  sheds:
-    my-service:
-      role: arn:aws:iam::123456789012:role/dev
-    integration-tests:
-      role: arn:aws:iam::123456789012:role/staging-readonly
+  servers:
+    mini2:
+      sheds:
+        my-service:
+          role: arn:aws:iam::123456789012:role/dev
+        sso-app:
+          mode: passthrough
 ```
 
 ## What Happens
@@ -125,9 +129,9 @@ aws:
 
 1. AWS SDK calls `GET http://127.0.0.1:499/credentials`
 2. `shed-ext-aws-credentials` sends the request through the message bus
-3. `shed-host-agent` calls `sts:AssumeRole` (or returns cached credentials)
+3. `shed-host-agent` calls `sts:AssumeRole` (or returns cached credentials), or in passthrough mode vends your source profile's session credentials directly
 4. Temporary credentials flow back — SDK call succeeds
-5. Credentials expire in 1 hour; SDK handles automatic refresh
+5. In assume-role mode the credentials expire in ~1 hour and the SDK refreshes automatically; in passthrough mode they last as long as your source session and the agent re-reads it (re-run your SSO login to refresh)
 
 ### Docker Flow
 

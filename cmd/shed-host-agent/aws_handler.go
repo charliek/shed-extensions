@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	sdk "github.com/charliek/shed/sdk"
 
@@ -103,16 +104,21 @@ func (h *AWSHandler) handleGetCredentials(ctx context.Context, env *sdk.Envelope
 		AccessKeyID:     creds.AccessKeyID,
 		SecretAccessKey: creds.SecretAccessKey,
 		SessionToken:    creds.SessionToken,
-		Expiration:      creds.Expiration.Format("2006-01-02T15:04:05Z"),
+	}
+	// Leave Expiration empty (omitted on the wire) when unknown — passthrough
+	// creds may carry no expiry hint, and a zero time must not serialize as
+	// year-0001 or "", which the guest SDK can't parse.
+	if !creds.Expiration.IsZero() {
+		resp.Expiration = creds.Expiration.Format("2006-01-02T15:04:05Z")
 	}
 
 	h.sendResponse(ctx, env, resp)
 	h.audit.LogEntry(AuditEntry{
 		Server: h.server, Shed: shedName, Namespace: protocol.NamespaceAWSCredentials, Operation: protocol.AWSOpGetCredentials,
-		Result: "ok", Detail: fmt.Sprintf("expires:%s", creds.Expiration.Format("15:04")), Approval: h.approval.Method(),
+		Result: "ok", Detail: awsExpiryDetail(creds.Expiration), Approval: h.approval.Method(),
 		DecidedBy: outcome.DecidedBy, Scope: outcome.Scope, TTL: outcome.TTL,
 	})
-	h.logger.Debug("credentials served", "server", h.server, "shed", shedName, "expires", creds.Expiration)
+	h.logger.Debug("credentials served", "server", h.server, "shed", shedName, "expires", awsExpiryDetail(creds.Expiration))
 }
 
 func (h *AWSHandler) handlePing(ctx context.Context, env *sdk.Envelope, shedName string) {
@@ -154,4 +160,14 @@ func (h *AWSHandler) sendResponse(ctx context.Context, req *sdk.Envelope, payloa
 func (h *AWSHandler) sendError(ctx context.Context, req *sdk.Envelope, msg, code string) {
 	errResp := protocol.AWSErrorResponse{Error: msg, Code: code}
 	h.sendResponse(ctx, req, errResp)
+}
+
+// awsExpiryDetail renders the audit detail for a successful credential vend,
+// using "expires:none" when the credentials carry no expiry (passthrough without
+// a hint) rather than a misleading expires:00:00.
+func awsExpiryDetail(exp time.Time) string {
+	if exp.IsZero() {
+		return "expires:none"
+	}
+	return fmt.Sprintf("expires:%s", exp.Format("15:04"))
 }

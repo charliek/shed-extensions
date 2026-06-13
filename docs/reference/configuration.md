@@ -19,16 +19,19 @@ ssh:
 aws:
   source_profile: default
   default_role: arn:aws:iam::123456789012:role/acmeco-dev
+  mode: assume-role                  # assume-role (default) | passthrough (SSO/SAML, see AWS Credentials)
   session_duration: 1h
   cache_refresh_before: 5m
   approval:
-    policy: deny-all                 # off until a role is set; then approve-all | shed-desktop
-  # Per-shed role overrides
-  sheds:
-    my-service:
-      role: arn:aws:iam::123456789012:role/acmeco-dev
-    integration-tests:
-      role: arn:aws:iam::123456789012:role/acmeco-staging-readonly
+    policy: deny-all                 # off until configured; then approve-all | shed-desktop
+  # Per-server / per-shed role and mode overrides
+  servers:
+    mini2:
+      sheds:
+        my-service:
+          role: arn:aws:iam::123456789012:role/acmeco-dev
+        sso-app:
+          mode: passthrough          # vend source_profile's session creds directly
 
 docker:
   registries:
@@ -80,13 +83,17 @@ there is no shed-desktop Preferences UI for them.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `aws.approval.policy` | string | `deny-all` | `deny-all`, `approve-all`, or `shed-desktop` |
-| `aws.source_profile` | string | `default` | AWS credentials profile to use for AssumeRole |
-| `aws.default_role` | string | | IAM role ARN to assume (required for AWS to work) |
-| `aws.session_duration` | string | `1h` | STS session token lifetime |
-| `aws.cache_refresh_before` | string | `5m` | Refresh cached credentials when less than this time remains |
-| `aws.sheds.<name>.role` | string | | Deprecated global per-shed role override (any server). Prefer `aws.servers.…` |
+| `aws.source_profile` | string | `default` | AWS profile vended: the AssumeRole source, or (passthrough) the session creds served directly |
+| `aws.default_role` | string | | IAM role ARN to assume (required for assume-role mode) |
+| `aws.mode` | string | `assume-role` | `assume-role` (default) or `passthrough` (vend `source_profile` session creds directly, for SSO/SAML) |
+| `aws.session_duration` | string | `1h` | STS session token lifetime (assume-role mode) |
+| `aws.cache_refresh_before` | string | `5m` | Refresh cached credentials when less than this time remains (assume-role mode) |
 | `aws.servers.<server>.default_role` | string | | Per-server role default (multi-server mode) |
+| `aws.servers.<server>.mode` | string | | Per-server mode override |
+| `aws.servers.<server>.session_duration` | string | | Per-server session token lifetime (assume-role mode) |
 | `aws.servers.<server>.sheds.<shed>.role` | string | | Per-server, per-shed role override (most specific) |
+| `aws.servers.<server>.sheds.<shed>.mode` | string | | Per-server, per-shed mode override (most specific) |
+| `aws.servers.<server>.sheds.<shed>.session_duration` | string | | Per-server, per-shed session token lifetime (most specific) |
 
 ### Docker Settings
 
@@ -176,6 +183,8 @@ aws:
       sheds:
         web:
           role: arn:aws:iam::111:role/Web        # per-shed (wins)
+        sso-app:
+          mode: passthrough                      # per-shed mode override
 
 docker:
   registries: [ghcr.io]                          # default allowlist
@@ -189,8 +198,9 @@ docker:
 ```
 
 Resolution order (later overrides earlier): top-level defaults →
-`aws.sheds.<shed>` (deprecated global, AWS only) → `…servers.<server>` →
-`…servers.<server>.sheds.<shed>`. For Docker, a non-`null` `registries` list
+`…servers.<server>` → `…servers.<server>.sheds.<shed>`. For AWS, `role`, `mode`,
+and `session_duration` layer independently (a `mode: passthrough` inherited from
+a parent makes a shed's `role` irrelevant). For Docker, a non-`null` `registries` list
 **replaces** (does not merge) the inherited list, and `allow_all` is only
 overridden when explicitly set at a more specific level.
 

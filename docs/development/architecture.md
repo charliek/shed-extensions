@@ -45,7 +45,7 @@ graph TB
 4. shed-server routes the message to the `aws-credentials` namespace listener via SSE
 5. `shed-host-agent` receives the envelope, checks its credential cache
 6. If cached credentials are still valid (>5 min remaining), return immediately
-7. If stale, call `sts:AssumeRole` with the configured role, cache result
+7. If stale, call `sts:AssumeRole` with the configured role and cache the result — or, in passthrough mode, re-read and vend the source profile's session credentials directly (no AssumeRole, no caching)
 8. Response flows back to `shed-ext-aws-credentials`, which returns the AWS SDK-expected format
 9. The SDK caches the credential in memory and manages its own refresh
 
@@ -60,9 +60,12 @@ sequenceDiagram
     SDK->>Proxy: GET /credentials
     Proxy->>Bus: publish(aws-credentials)
     Bus->>Host: SSE event
-    alt Cache hit
+    alt passthrough mode
+        Host->>Host: re-read source profile session creds
+        Host-->>Bus: session credentials (no AssumeRole, no cache)
+    else assume-role, cache hit
         Host-->>Bus: cached credentials
-    else Cache miss
+    else assume-role, cache miss
         Host->>STS: AssumeRole
         STS-->>Host: temp credentials
         Host-->>Bus: fresh credentials
@@ -118,7 +121,8 @@ graph TD
 The caching strategy is asymmetric:
 
 - **Guest proxy**: Pure passthrough, no caching. Every SDK request goes to the bus.
-- **Host handler**: Caches STS credentials per shed, keyed by shed name.
+- **Host handler (assume-role mode)**: Caches STS credentials per shed, keyed by server/shed.
+- **Host handler (passthrough mode)**: No caching — the shared credentials file is re-read on every request so a fresh SSO/SAML login is picked up immediately.
 
 This avoids cache coherence complexity. The bus round trip is sub-millisecond (vsock, same machine), and the SDK only fetches credentials when its in-memory cache is stale (~once per hour).
 

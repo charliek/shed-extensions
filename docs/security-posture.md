@@ -82,7 +82,7 @@ All credential operations are logged as JSON lines to `~/.local/share/shed/exten
 ## Compliance Benefits
 
 - **Credential rotation**: Rotate keys on the host without touching any VM
-- **Least privilege**: Each shed gets exactly one IAM role via host config
+- **Least privilege**: Each shed gets exactly one IAM role via host config (except opt-in passthrough mode — see Residual Risks)
 - **Audit**: Centralized, machine-readable log of all credential operations
 - **Separation of concerns**: Dev environment execution is isolated from credential storage
 - **Key management flexibility**: Developers keep their existing tools (Secretive, 1Password, yubikey-agent)
@@ -91,5 +91,6 @@ All credential operations are logged as JSON lines to `~/.local/share/shed/exten
 
 - **Host machine compromise**: If the developer's Mac is compromised, the attacker has equivalent access to credentials. This is unchanged from the current model.
 - **STS token window**: A compromised VM has a 1-hour window to use stolen STS tokens after the host agent stops. Tokens cannot be revoked early (AWS limitation).
+- **Passthrough mode breadth**: In `mode: passthrough` (for SSO/SAML setups with no assumable role), the agent vends the source profile's *own* session identity and full scope — not a narrower per-shed role — for the remaining lifetime of that session. The host `status` output reports `passthrough:<profile>` in place of a role ARN. It keeps the core wins (host-brokered, per-request audited, no credential written to the VM's disk, revocable by stopping the host agent), but it is broader than AssumeRole; prefer AssumeRole wherever an assumable role exists.
 - **Signature abuse**: A compromised VM can request arbitrary SSH signatures while the host agent is running. The optional Touch ID approval gate (`ssh.approval`) mitigates this by requiring per-request, per-session, or per-shed authorization; shed-extensions does not currently rate-limit sign requests.
 - **No mTLS on bus**: The vsock transport does not use TLS. This is acceptable because vsock is a host-kernel-to-VM channel with no network exposure.

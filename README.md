@@ -118,7 +118,7 @@ shed list -vv
 
 - SSH private keys never enter the VM — only signatures cross the bus
 - AWS long-lived credentials never leave the host
-- AWS STS tokens are short-lived (1 hour) and role-scoped per shed
+- AWS STS tokens are short-lived (1 hour) and role-scoped per shed; an opt-in passthrough mode vends existing SSO/SAML session creds for setups with no assumable role
 - Docker registry credentials brokered on demand with configurable registry allowlist
 - Optional Touch ID approval gate for SSH sign operations
 - All credential operations logged to host-side audit log
@@ -141,12 +141,14 @@ aws:
   session_duration: 1h
   cache_refresh_before: 5m
 
-  # Per-shed role overrides
-  sheds:
-    my-service:
-      role: arn:aws:iam::123456789012:role/dev
-    integration-tests:
-      role: arn:aws:iam::123456789012:role/staging-readonly
+  # Per-server / per-shed role and mode overrides
+  servers:
+    mini2:
+      sheds:
+        my-service:
+          role: arn:aws:iam::123456789012:role/dev
+        sso-app:
+          mode: passthrough   # SSO/SAML: vend source_profile session creds directly
 
 docker:
   registries:
