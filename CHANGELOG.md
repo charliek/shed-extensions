@@ -24,6 +24,22 @@
           web: { role: arn:aws:iam::123456789012:role/web }
   ```
 
+- **The shed-desktop approval channel is always-on at a fixed socket path** (#31).
+  Removed the `desktop.enabled`, `desktop.socket_path`, and `desktop.timeout_ms`
+  config keys — a config that still sets them loads with a deprecation warning
+  (warn-and-ignore), it is not rejected. The per-approval budget moved to a new
+  top-level `approval_timeout` (Go duration, default `25s`). Both Unix sockets
+  (status + approval channel) now live at fixed, well-known paths instead of
+  being YAML-configurable, overridable for tests / parallel agents via
+  `SHED_HOST_AGENT_SOCKET_DIR`. shed-desktop needs no change — it already
+  connects to that fixed path.
+
+- **`shed-host-agent status` is now live-only** (#31). It queries the running
+  daemon over its read-only status socket and prints the daemon's own
+  self-report instead of re-reading a config file, so it can never disagree with
+  the running service; it exits non-zero when the agent isn't running. The
+  `status --live` flag is removed — plain `status` is always live.
+
 ### Features
 
 - **Opt-in AWS `passthrough` mode for SSO/SAML** (#33) — a new `aws.mode`
@@ -49,7 +65,20 @@
   fields are additive (`omitempty`), so existing log parsers and older
   shed-desktop builds are unaffected.
 
+- **`status` reports which config the running agent loaded** (#31, closes #29) —
+  the absolute `config_path` appears in both the human and `--json` (schema 1)
+  output, so a Homebrew user can confirm the service is using the expected file
+  rather than a stale `~/.config` copy. The report also shows the effective
+  policy per provider, whether a shed-desktop consumer is connected, and each
+  watched server's per-namespace connection state.
+
 ### Docs
+
+- **New [Host Agent IPC](docs/reference/host-agent-ipc.md) reference** documents
+  the agent's two fixed-path Unix sockets — the read-only status socket
+  (`LiveStatus` schema 1) and the approval channel (NDJSON handshake + frame
+  catalog) — as a versioned public contract, so tooling beyond shed-desktop can
+  build against them.
 
 - **Allowlist Docker Hub as `index.docker.io`, not `docker.io`** — Docker
   requests Hub credentials for `https://index.docker.io/v1/`, which normalizes to
