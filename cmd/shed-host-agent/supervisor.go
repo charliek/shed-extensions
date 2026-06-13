@@ -118,11 +118,17 @@ func (s *Supervisor) Reconcile(desired []ServerTarget) {
 		want[t.Name] = t
 	}
 
-	// Stop removed or URL-changed groups. Cancel under the lock (fast); drain
-	// after releasing it so a slow handler can't block other reconciles.
+	// Stop removed or changed groups. Compare the whole target (URL, Token,
+	// TLSFingerprint), not just URL: a rotated/added credentials token or TLS
+	// pin for the same URL must restart the watcher so it takes effect, rather
+	// than silently keeping the stale value until process restart (an HTTPS
+	// target that newly gains a pin would otherwise stay unpinned). Name is the
+	// map key, so the struct compare is exactly the credential-bearing fields.
+	// Cancel under the lock (fast); drain after releasing it so a slow handler
+	// can't block other reconciles.
 	var draining []*watcherGroup
 	for name, g := range s.groups {
-		if t, ok := want[name]; !ok || t.URL != g.target.URL {
+		if t, ok := want[name]; !ok || t != g.target {
 			s.logger.Info("stopping server watcher", "server", name, "url", g.target.URL)
 			g.cancel()
 			draining = append(draining, g)
@@ -130,7 +136,7 @@ func (s *Supervisor) Reconcile(desired []ServerTarget) {
 		}
 	}
 
-	// Start new (or restarted-with-new-URL) groups.
+	// Start new (or restarted-on-change) groups.
 	for name, t := range want {
 		if _, ok := s.groups[name]; !ok {
 			s.groups[name] = s.newGroup(s.parent, t, s.deps)

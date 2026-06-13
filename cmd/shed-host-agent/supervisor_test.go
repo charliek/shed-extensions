@@ -123,6 +123,28 @@ func TestSupervisorReconcileURLChange(t *testing.T) {
 	}
 }
 
+func TestSupervisorReconcileCredentialChange(t *testing.T) {
+	// A rotated token or a newly-added TLS pin on the SAME url must restart the
+	// watcher so the new credential takes effect (else it stays stale until a
+	// process restart — an HTTPS target gaining a pin would stay unpinned).
+	f := &fakeGroups{}
+	s := newTestSupervisor(f)
+
+	s.Reconcile([]ServerTarget{{Name: "s", URL: "https://h:8443", Token: "t1"}})
+	s.Reconcile([]ServerTarget{{Name: "s", URL: "https://h:8443", Token: "t2"}})                              // token rotated
+	s.Reconcile([]ServerTarget{{Name: "s", URL: "https://h:8443", Token: "t2", TLSFingerprint: "sha256:aa"}}) // pin added
+
+	if f.startCount() != 3 {
+		t.Errorf("startCount = %d, want 3 (token change + pin add each restart)", f.startCount())
+	}
+	s.mu.Lock()
+	got := s.groups["s"].target
+	s.mu.Unlock()
+	if got.Token != "t2" || got.TLSFingerprint != "sha256:aa" {
+		t.Errorf("running target = %+v, want Token=t2 TLSFingerprint=sha256:aa", got)
+	}
+}
+
 func TestSupervisorReconcileDedup(t *testing.T) {
 	f := &fakeGroups{}
 	s := newTestSupervisor(f)
