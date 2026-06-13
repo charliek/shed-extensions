@@ -97,6 +97,7 @@ nav:
       - Status CLI: reference/status-cli.md
       - Configuration: reference/configuration.md
       - shed-desktop Approval: reference/desktop-approval.md
+      - Host Agent IPC: reference/host-agent-ipc.md
   - Security:
       - Security Posture: security-posture.md
   - Development:

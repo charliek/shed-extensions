@@ -6,19 +6,12 @@ local Unix-domain socket, instead of approving inline. The same socket also
 carries an all-namespace audit/event stream that the app renders as a live
 activity feed.
 
-This is **disabled by default**. With it off, none of this code path runs.
-
-## Enabling
-
-Set `desktop.enabled: true` and the `approval.policy` of each extension you want
-the app to decide to `shed-desktop`:
+The approval socket is **always on** — there is nothing to enable. It lives at a
+fixed path (see [Host Agent IPC](host-agent-ipc.md)), so the app can always find
+the agent. To route a given extension's decisions to the app, set its
+`approval.policy` to `shed-desktop`:
 
 ```yaml
-desktop:
-  enabled: true                     # start the local approval socket
-  socket_path: ~/Library/Application Support/shed/host-agent.sock
-  timeout_ms: 25000                 # per-request approval budget
-
 ssh:
   approval:
     policy: shed-desktop            # decide SSH sign approvals in the app
@@ -28,11 +21,13 @@ aws:
 docker:
   approval:
     policy: shed-desktop            # optional: toggle Allow/Deny in the app
+
+# Optional: how long to wait for the app to decide before failing closed (default 25s)
+# approval_timeout: 25s
 ```
 
-`desktop.enabled` starts the socket; a `shed-desktop` policy selects the
-delegating gate for that extension. If a policy is `shed-desktop` but the
-channel is disabled (or the app isn't connected), the agent **fails closed** —
+A `shed-desktop` policy selects the delegating gate for that extension. If a
+policy is `shed-desktop` but no app is connected, the agent **fails closed** —
 it denies rather than silently falling back.
 
 ## Scope
@@ -47,12 +42,17 @@ it denies rather than silently falling back.
 
 ## Transport
 
-- A Unix-domain socket at `socket_path` (mode `0600`; owner-only).
+- A Unix-domain socket at a fixed path (mode `0600`; owner-only). See
+  [Host Agent IPC](host-agent-ipc.md#socket-locations) for the path resolution.
 - Newline-delimited JSON, one typed envelope per line.
 - Single active consumer, **last-writer-wins**: a new `hello` supersedes the
   previous app connection (the old one receives `hello_ack {accepted:false}`).
 
 ## Wire protocol
+
+The frame catalog and handshake are specified in
+[Host Agent IPC → Approval channel](host-agent-ipc.md#approval-channel) (the
+canonical reference). In short:
 
 | Direction | type | Fields |
 |-----------|------|--------|
@@ -78,7 +78,7 @@ prompt today — a **deny**:
 | Condition | Outcome |
 |-----------|---------|
 | No app connected | deny immediately |
-| App connected, no response within `timeout_ms` | deny |
+| App connected, no response within `approval_timeout` | deny |
 | App disconnects mid-request | deny |
 | Duplicate / unknown `request_id` response | ignored |
 | `decision: approve` within budget | sign proceeds |

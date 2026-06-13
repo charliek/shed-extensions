@@ -32,15 +32,19 @@ server: http://localhost:8080
 #   approve-all            Allow every request. (Any allowlist/role configured
 #                          below still applies — this only removes the approval
 #                          prompt.)
-#   shed-desktop           Decide each request in the shed-desktop app. Requires
-#                          `desktop.enabled: true` (bottom of this file). The
-#                          app's Preferences own the method/scope/TTL; if the
-#                          app isn't running, requests fail closed (deny).
+#   shed-desktop           Decide each request in the shed-desktop app. The app
+#                          connects to the agent's always-on approval socket; its
+#                          Preferences own the method/scope/TTL. If the app isn't
+#                          running, requests fail closed (deny).
 #
 #   SSH only — native macOS Touch ID (works with no app running):
 #   biometrics             Touch ID only. Fails when no biometric is available.
 #   biometrics-or-password Touch ID, Apple Watch, OR account password. Works in
 #                          clamshell mode and on Macs without a sensor.
+#
+# How long the agent waits for the app to decide a shed-desktop approval before
+# failing closed (Go duration; default 25s):
+# approval_timeout: 25s
 
 # ---------------------------------------------------------------------------
 # SSH agent
@@ -141,11 +145,10 @@ logging:
   path: ~/.local/share/shed/extensions-audit.log
 
 # ---------------------------------------------------------------------------
-# shed-desktop integration (off by default)
+# shed-desktop integration
 # ---------------------------------------------------------------------------
-# Enable this to let the shed-desktop app receive the audit/event stream and
-# make approval decisions for any extension whose policy is `shed-desktop`.
-# desktop:
-#   enabled: true
-#   socket_path: ~/Library/Application Support/shed/host-agent.sock
-#   timeout_ms: 25000   # how long to wait for the app to decide before denying
+# No configuration needed: the agent always serves a local approval socket at a
+# fixed path that the shed-desktop app connects to (it receives the audit/event
+# stream and decides any extension whose policy is `shed-desktop`). See
+# docs/reference/host-agent-ipc.md. Tune the approval budget with the top-level
+# `approval_timeout` above.

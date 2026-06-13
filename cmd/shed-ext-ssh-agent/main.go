@@ -50,7 +50,7 @@ func main() {
 		if err := a.Ping(2 * time.Second); err != nil {
 			logger.Warn("shed-host-agent not connected for namespace 'ssh-agent'",
 				"error", err,
-				"hint", "SSH operations will fail until shed-host-agent is running on your Mac. Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml",
+				"hint", "SSH operations will fail until shed-host-agent is running on the host machine.",
 			)
 			writeStatus("ssh-agent: not connected")
 		} else {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -42,11 +43,16 @@ type Config struct {
 	// from shed's own CLI config and brokers for all (or a selected subset) of
 	// them from a single process. nil (block omitted) => legacy single-server.
 	Discovery *DiscoveryConfig `yaml:"discovery"`
-	SSH       SSHConfig        `yaml:"ssh"`
-	AWS       AWSConfig        `yaml:"aws"`
-	Docker    DockerConfig     `yaml:"docker"`
-	Logging   LogConfig        `yaml:"logging"`
-	Desktop   DesktopConfig    `yaml:"desktop"`
+	// ApprovalTimeout is how long a delegated approval decision (an extension
+	// with `approval.policy: shed-desktop`) may take before the agent fails
+	// closed (deny). Go duration string; default "25s".
+	ApprovalTimeout string       `yaml:"approval_timeout"`
+	SSH             SSHConfig    `yaml:"ssh"`
+	AWS             AWSConfig    `yaml:"aws"`
+	Docker          DockerConfig `yaml:"docker"`
+	Logging         LogConfig    `yaml:"logging"`
+	// Desktop is deprecated and ignored — see DesktopConfig.
+	Desktop DesktopConfig `yaml:"desktop"`
 }
 
 // DiscoveryConfig selects which shed servers a single agent process watches and
@@ -148,15 +154,21 @@ func (c Config) ResolveTargets(discovered []ServerTarget) []ServerTarget {
 	return out
 }
 
-// DesktopConfig controls the shed-desktop approval delegation channel. When
-// Enabled, the agent exposes a local Unix-domain socket that a connected
-// shed-desktop app uses to receive the all-namespace audit/event stream and
-// to answer SSH approval requests (with ssh.approval.method: shed-desktop).
-// Disabled by default — with it off, none of this code path runs.
+// DesktopConfig is deprecated and ignored. The approval channel is always on:
+// its socket lives at a fixed path (see sockets.go), and the approval budget
+// moved to the top-level `approval_timeout`. The struct remains only so
+// LoadConfig can warn when an old config still sets these keys.
 type DesktopConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	SocketPath string `yaml:"socket_path"`
-	TimeoutMS  int    `yaml:"timeout_ms"` // per-request approval budget; default 25000
+	// All pointers so an explicitly-set value (even a zero/empty one) is
+	// distinguishable from an omitted key — warnDeprecatedDesktopKeys warns on
+	// presence, not on a non-zero value.
+	//
+	// Deprecated: ignored. The approval channel is always on.
+	Enabled *bool `yaml:"enabled"`
+	// Deprecated: ignored. The socket path is fixed (see desktopSocketPath).
+	SocketPath *string `yaml:"socket_path"`
+	// Deprecated: ignored. Use the top-level `approval_timeout` instead.
+	TimeoutMS *int `yaml:"timeout_ms"`
 }
 
 // DockerConfig controls the Docker registry credential handler behavior. The
@@ -389,7 +401,8 @@ type LogConfig struct {
 func DefaultConfig() Config {
 	home := userHomeDir()
 	return Config{
-		Server: "http://localhost:8080",
+		Server:          "http://localhost:8080",
+		ApprovalTimeout: "25s",
 		SSH: SSHConfig{
 			// Policy is intentionally empty here => deny-all (fail closed) unless
 			// the config sets one. Scope/SessionTTL are the defaults a native
@@ -407,11 +420,6 @@ func DefaultConfig() Config {
 		Logging: LogConfig{
 			Enabled: true,
 			Path:    filepath.Join(home, ".local", "share", "shed", "extensions-audit.log"),
-		},
-		Desktop: DesktopConfig{
-			Enabled:    false,
-			SocketPath: filepath.Join(home, "Library", "Application Support", "shed", "host-agent.sock"),
-			TimeoutMS:  25000,
 		},
 	}
 }
@@ -432,7 +440,7 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	cfg.Logging.Path = expandTilde(cfg.Logging.Path)
-	cfg.Desktop.SocketPath = expandTilde(cfg.Desktop.SocketPath)
+	warnDeprecatedDesktopKeys(cfg.Desktop)
 
 	if err := cfg.Validate(); err != nil {
 		return cfg, fmt.Errorf("invalid config: %w", err)
@@ -467,7 +475,46 @@ func (c Config) Validate() error {
 	if err := c.AWS.validate(); err != nil {
 		return err
 	}
+	if _, err := c.ApprovalTimeoutDuration(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// ApprovalTimeoutDuration parses approval_timeout, requiring a positive Go
+// duration. An empty value falls back to the 25s default (so a config that
+// omits the key is valid).
+func (c Config) ApprovalTimeoutDuration() (time.Duration, error) {
+	v := c.ApprovalTimeout
+	if v == "" {
+		v = "25s"
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("approval_timeout %q is not a valid duration: %w", c.ApprovalTimeout, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("approval_timeout %q must be positive", c.ApprovalTimeout)
+	}
+	return d, nil
+}
+
+// warnDeprecatedDesktopKeys logs a warning for each deprecated desktop.* key
+// that is still set in the config. They are ignored: the approval channel is
+// always on at a fixed socket path, and the approval budget is the top-level
+// approval_timeout.
+func warnDeprecatedDesktopKeys(d DesktopConfig) {
+	if d.Enabled != nil {
+		slog.Warn("config: `desktop.enabled` is deprecated and ignored — the approval channel is always on")
+	}
+	if d.SocketPath != nil {
+		slog.Warn("config: `desktop.socket_path` is deprecated and ignored — the socket path is fixed",
+			"path", desktopSocketPath())
+	}
+	if d.TimeoutMS != nil {
+		slog.Warn("config: `desktop.timeout_ms` is deprecated and ignored — use the top-level `approval_timeout`",
+			"timeout_ms", *d.TimeoutMS)
+	}
 }
 
 func validatePolicy(provider, policy string, allowed []string) error {

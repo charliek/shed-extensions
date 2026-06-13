@@ -89,7 +89,7 @@ func (p *Proxy) HandleCredentials(w http.ResponseWriter, r *http.Request) {
 		p.logger.Error("credential request failed", "error", err)
 		p.writeError(w, http.StatusServiceUnavailable,
 			"credential request timed out",
-			"shed-host-agent not reachable. Is it running on your Mac?",
+			"shed-host-agent not reachable. Is it running on the host machine?",
 		)
 		return
 	}
@@ -130,7 +130,7 @@ func (p *Proxy) Ping(timeout time.Duration) error {
 
 func (p *Proxy) writeError(w http.ResponseWriter, status int, msg, hint string) {
 	if hint == "" {
-		hint = "Start it with: shed-host-agent --config ~/.config/shed/extensions.yaml"
+		hint = "Ensure shed-host-agent is running on the host machine."
 	}
 	resp := awsSDKErrorResponse{
 		Error:   msg,

@@ -8,6 +8,9 @@ The host agent reads configuration from `~/.config/shed/extensions.yaml`.
 # shed-server URL
 server: http://localhost:8080
 
+# How long to wait for a shed-desktop approval before failing closed (default 25s)
+# approval_timeout: 25s
+
 ssh:
   # SSH backend: "agent-forward", "local-keys", or "" (auto-detect)
   # mode: ""
@@ -57,13 +60,16 @@ omitted/empty policy means **`deny-all`** (fail closed). Values:
 |--------|----------|
 | `deny-all` | Reject every request. The safe default / kill-switch. |
 | `approve-all` | Allow every request. Any allowlist/role below still applies — this only removes the approval prompt. |
-| `shed-desktop` | Decide each request in the [shed-desktop](desktop-approval.md) app (requires `desktop.enabled`). The app's Preferences own method/scope/TTL; if the app isn't running, requests **fail closed**. |
+| `shed-desktop` | Decide each request in the [shed-desktop](desktop-approval.md) app. The app connects to the agent's always-on [approval socket](host-agent-ipc.md#approval-channel); its Preferences own method/scope/TTL. If the app isn't running, requests **fail closed**. |
 | `biometrics` | **SSH only.** Native macOS Touch ID, biometrics only (fails with no sensor). |
 | `biometrics-or-password` | **SSH only.** Native Touch ID, Apple Watch, **or** account password — works in clamshell mode and on Macs without a sensor. |
 
 `scope` and `session_ttl` apply **only** to the native biometric policies (they
 cache an approval so you aren't prompted on every operation). Under
 `shed-desktop` the app owns scope/TTL; under `deny-all`/`approve-all` they are unused.
+
+The top-level **`approval_timeout`** (Go duration, default `25s`) bounds how long
+the agent waits for a `shed-desktop` decision before failing closed.
 
 ### SSH Settings
 
@@ -220,31 +226,26 @@ None. The opinionated base image configures everything:
 
 ### `shed-host-agent status`
 
-A one-shot, host-side health probe — run it on the Mac to see how the agent is
-configured and what it can currently reach, without grepping the log:
+Queries the **running** agent over its read-only [status socket](host-agent-ipc.md#status-socket)
+and prints the daemon's own self-report. It does not read a config file — the daemon is the source
+of truth for what it loaded — so `status` can never disagree with the running service (the confusion
+that motivated this design: a bare invocation reading a different config than the brew service).
 
 ```bash
 shed-host-agent status              # human-readable
-shed-host-agent status --json       # machine-readable
+shed-host-agent status --json       # machine-readable (schema 1)
 ```
 
 It reports:
 
+- which **config file** the running agent loaded (the absolute `config_path`);
 - the **effective approval policy** per provider, and which are delegated to shed-desktop;
-- the **desktop approval channel**: whether it's enabled and the state of its Unix socket —
-  `listening`, `missing` (the socket isn't being served — relaunch/kickstart the agent),
-  `stale` (a leftover socket file with nothing accepting), or `disabled`;
-- each **watched server**: reachable or not, and which credential namespaces are registered.
+- the **approval channel**: its socket path and whether a consumer (e.g. shed-desktop) is connected;
+- each **watched server**: per-namespace connection state — `connected`, `reconnecting` (with the
+  failure reason), or `stopped`.
 
-It is an *environment* probe: it shows what each server has registered, not whether *this* agent is
-the registrant. For the running daemon's **own** view — per-server, per-namespace `connected` /
-`reconnecting` (with the failure reason) — add `--live`, which queries the agent over a read-only
-status socket:
-
-```bash
-shed-host-agent status --live          # the running agent's live connection state
-shed-host-agent status --live --json
-```
+If the agent isn't running, `status` says so and exits non-zero (nothing is listening on the
+socket) rather than guessing from a file. Start it with `brew services start shed-host-agent`.
 
 (`status` is the host-side counterpart to the in-VM [`shed-ext status`](status-cli.md), which
 checks connectivity from inside a shed.)
@@ -258,8 +259,7 @@ checks connectivity from inside a shed.)
 | `--config` | `~/.config/shed/extensions.yaml` | Path to config file |
 | `--log-file` | `""` (stderr) | Write the operational log to this file, size-capped + rotated (the brew service sets it; empty logs to stderr) |
 | `version` | — | Print version and exit |
-| `status [--json]` | — | Print a host-side environment health report and exit (see [Diagnostics](#diagnostics)) |
-| `status --live [--json]` | — | Query the running daemon's live per-server connection state and exit |
+| `status [--json]` | — | Query the running daemon's self-report (config, policies, connection state) and exit (see [Diagnostics](#diagnostics)) |
 
 ### shed-ext-ssh-agent
 

@@ -16,8 +16,8 @@ func gateFor(namespace, op string, approval ApprovalConfig, desktop *DesktopServ
 		return newApprovalGate(approval)
 	case PolicyShedDesktop:
 		if desktop == nil {
-			// Misconfiguration: delegation requested but desktop.enabled is false.
-			// Fail closed rather than silently fall back.
+			// Defensive: the approval channel is always constructed in the daemon,
+			// so this is unreachable there. Fail closed rather than panic.
 			return &denyGate{}
 		}
 		return &desktopGate{server: desktop, namespace: namespace, op: op}
@@ -26,11 +26,12 @@ func gateFor(namespace, op string, approval ApprovalConfig, desktop *DesktopServ
 	}
 }
 
-// denyGate fails every request closed — used when shed-desktop delegation is
-// selected but the desktop channel isn't enabled.
+// denyGate fails every request closed — used when a shed-desktop policy is
+// selected but no approval channel is available (defensive; not reachable in
+// the daemon, which always constructs one).
 type denyGate struct{}
 
 func (g *denyGate) Approve(_, _, _ string) (ApprovalOutcome, error) {
-	return ApprovalOutcome{}, fmt.Errorf("approval.policy is shed-desktop but desktop.enabled is false")
+	return ApprovalOutcome{}, fmt.Errorf("approval.policy is shed-desktop but the approval channel is unavailable")
 }
 func (g *denyGate) Method() string { return PolicyShedDesktop }
