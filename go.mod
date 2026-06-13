@@ -5,7 +5,7 @@ go 1.24.13
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
-	github.com/charliek/shed/sdk v0.1.1
+	github.com/charliek/shed/sdk v0.2.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	golang.org/x/crypto v0.36.0

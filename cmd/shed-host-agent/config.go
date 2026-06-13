@@ -125,10 +125,16 @@ func (s ServerSelector) Selected(name string) bool {
 
 // ServerTarget is a resolved shed server this agent brokers for. Name is the
 // identity key (the discovery name, or empty in single-server mode); URL is the
-// shed-server broker base URL (http://host:port).
+// shed-server broker base URL (http://host:port, or an https api_url).
 type ServerTarget struct {
 	Name string
 	URL  string
+	// Token is the credentials-scoped bearer token sent to the shed-server
+	// credential bus. Empty when the server isn't token-gated.
+	Token string
+	// TLSFingerprint pins the server's self-signed TLS cert ("sha256:<hex>")
+	// when URL is https. Empty for plain HTTP.
+	TLSFingerprint string
 }
 
 // ResolveTargets computes the desired set of servers to watch. In single-server

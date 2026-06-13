@@ -44,6 +44,40 @@ sheds:
 	}
 }
 
+func TestLoadDiscoveredServersTLS(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	// "tls" has an api_url + pin + token; "plain" keeps the legacy http form.
+	content := `
+servers:
+  plain:
+    host: plainhost
+    http_port: 8080
+  tls:
+    host: tlshost
+    http_port: 8080
+    api_url: https://tlshost:8443
+    tls_cert_fingerprint: sha256:abc123
+    credentials_token: shed_credentials_xyz
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadDiscoveredServers(path)
+	if err != nil {
+		t.Fatalf("LoadDiscoveredServers: %v", err)
+	}
+	// api_url overrides http://host:port; the pin + token are carried through.
+	want := []ServerTarget{
+		{Name: "plain", URL: "http://plainhost:8080"},
+		{Name: "tls", URL: "https://tlshost:8443", Token: "shed_credentials_xyz", TLSFingerprint: "sha256:abc123"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestLoadDiscoveredServersMissingFile(t *testing.T) {
 	got, err := LoadDiscoveredServers(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
 	if err != nil {
