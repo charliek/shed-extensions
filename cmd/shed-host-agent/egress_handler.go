@@ -177,6 +177,7 @@ func egressHTTPClient(serverURL, fingerprint string) *http.Client {
 }
 
 func egressPinVerifier(fingerprint string) func([][]byte, [][]*x509.Certificate) error {
+	fingerprint = strings.ToLower(fingerprint) // hex.EncodeToString is lowercase
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
 			return errors.New("server presented no TLS certificate")
