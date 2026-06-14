@@ -44,35 +44,22 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	ctx, cancel := context.WithCancel(parent)
 	log := deps.Logger.With("server", t.Name, "url", t.URL)
 
-	// In secure mode the agent mints its own credentials token over SSH instead
-	// of using a pasted credentials_token. Falls back to t.Token when the server
-	// has no SSH endpoint (open mode) or the mint fails (logged). NOTE: this mint
-	// is synchronous and runs under the supervisor lock; sdk.Bootstrap self-bounds
-	// to ~15s. 4b-iii moves it behind a lazy refreshing token provider so it no
-	// longer blocks a reconcile and the token is re-minted near expiry.
-	token := t.Token
-	if deps.Minter != nil && t.SSHPort > 0 && t.SSHHost != "" {
-		if minted, _, err := deps.Minter.Mint(ctx, t); err != nil {
-			if token == "" {
-				// No pasted token to fall back to: the group starts but every bus
-				// call will be unauthenticated. Surface it loudly rather than let
-				// the failure show up only later as a 401 at the bus.
-				log.Error("credentials mint over SSH failed and no fallback token is configured; this server's broker will be unauthenticated", "error", err)
-			} else {
-				log.Warn("credentials mint over SSH failed; falling back to configured token", "error", err)
-			}
-		} else {
-			token = minted
-			log.Info("minted credentials token over SSH")
-		}
-	}
-
-	client := sdk.NewHostClient(
+	// A secure server (SSH endpoint present) authenticates with a self-minted,
+	// auto-refreshing credentials token via a token provider: the mint happens
+	// lazily on the first request (off this lock) and re-mints near expiry / on a
+	// 401, and a host-key pin mismatch fails closed. An open-mode server (no SSH
+	// endpoint) keeps using its configured static token.
+	opts := []sdk.HostClientOption{
 		sdk.WithServerURL(t.URL),
 		sdk.WithLogger(log),
-		sdk.WithToken(token),
 		sdk.WithTLSPin(t.TLSFingerprint),
-	)
+	}
+	if deps.Minter != nil && t.SSHPort > 0 && t.SSHHost != "" {
+		opts = append(opts, sdk.WithTokenProvider(newCredentialSource(ctx, deps.Minter, t)))
+	} else {
+		opts = append(opts, sdk.WithToken(t.Token))
+	}
+	client := sdk.NewHostClient(opts...)
 
 	var wg sync.WaitGroup
 	run := func(fn func(context.Context)) {

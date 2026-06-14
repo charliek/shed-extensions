@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 
+	sdk "github.com/charliek/shed/sdk"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -117,5 +122,88 @@ func TestKnownHostsPinSkipsRevoked(t *testing.T) {
 	}
 	if _, err := knownHostsPin(khPath, host, port); err == nil {
 		t.Error("a @revoked host key must not be used as a pin")
+	}
+}
+
+type mintResult struct {
+	tok string
+	exp time.Time
+	err error
+}
+
+// fakeMinter returns canned results in sequence (repeating the last) and counts
+// calls, so credentialSource can be tested without a live SSH server.
+type fakeMinter struct {
+	mu      sync.Mutex
+	calls   int
+	results []mintResult
+}
+
+func (f *fakeMinter) Mint(context.Context, ServerTarget) (string, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	i := f.calls
+	if i >= len(f.results) {
+		i = len(f.results) - 1
+	}
+	f.calls++
+	r := f.results[i]
+	return r.tok, r.exp, r.err
+}
+
+func TestCredentialSourceCachesAndReMints(t *testing.T) {
+	far := time.Now().Add(24 * time.Hour)
+	fm := &fakeMinter{results: []mintResult{{tok: "tok1", exp: far}, {tok: "tok2", exp: far}}}
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+
+	if got, _ := s.Token(); got != "tok1" {
+		t.Fatalf("Token = %q, want tok1", got)
+	}
+	if got, _ := s.Token(); got != "tok1" {
+		t.Errorf("cached Token = %q, want tok1", got)
+	}
+	if fm.calls != 1 {
+		t.Errorf("mint calls = %d, want 1 (second Token served from cache)", fm.calls)
+	}
+	s.Invalidate()
+	if got, _ := s.Token(); got != "tok2" {
+		t.Errorf("post-invalidate Token = %q, want tok2 (re-mint)", got)
+	}
+	if fm.calls != 2 {
+		t.Errorf("mint calls = %d, want 2", fm.calls)
+	}
+}
+
+func TestCredentialSourcePinMismatchTerminal(t *testing.T) {
+	fm := &fakeMinter{results: []mintResult{{err: fmt.Errorf("bootstrap: %w", sdk.ErrHostKeyMismatch)}}}
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+
+	if _, err := s.Token(); err == nil {
+		t.Fatal("expected a terminal error on a host-key pin mismatch")
+	}
+	// A pin mismatch is terminal: the second call fails closed WITHOUT re-minting.
+	if _, err := s.Token(); err == nil {
+		t.Error("expected the terminal error to persist")
+	}
+	if fm.calls != 1 {
+		t.Errorf("mint calls = %d, want 1 (a pin mismatch must never be retried)", fm.calls)
+	}
+}
+
+func TestCredentialSourceReMintsNearExpiry(t *testing.T) {
+	near := time.Now().Add(tokenRefreshWindow / 2) // inside the refresh window
+	far := time.Now().Add(24 * time.Hour)
+	fm := &fakeMinter{results: []mintResult{{tok: "near", exp: near}, {tok: "fresh", exp: far}}}
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+
+	if got, _ := s.Token(); got != "near" {
+		t.Fatalf("Token = %q, want near", got)
+	}
+	// The cached token is within tokenRefreshWindow of expiry → the next Token re-mints.
+	if got, _ := s.Token(); got != "fresh" {
+		t.Errorf("Token = %q, want fresh (near-expiry re-mint)", got)
+	}
+	if fm.calls != 2 {
+		t.Errorf("mint calls = %d, want 2", fm.calls)
 	}
 }
