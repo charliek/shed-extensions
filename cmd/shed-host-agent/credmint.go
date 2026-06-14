@@ -85,7 +85,7 @@ func knownHostsPin(knownHostsPath, host string, port int) (string, error) {
 	// port, bare "host" for port 22 — matching how OpenSSH (and shed) records it.
 	want := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
 	for len(data) > 0 {
-		_, hosts, pubKey, _, rest, err := ssh.ParseKnownHosts(data)
+		marker, hosts, pubKey, _, rest, err := ssh.ParseKnownHosts(data)
 		if err == io.EOF {
 			break
 		}
@@ -93,6 +93,11 @@ func knownHostsPin(knownHostsPath, host string, port int) (string, error) {
 			return "", fmt.Errorf("parsing known_hosts %s: %w", knownHostsPath, err)
 		}
 		data = rest
+		// Skip marked lines: a @revoked key must never be used as a pin, and a
+		// @cert-authority line is a CA, not a host-key pin.
+		if marker != "" {
+			continue
+		}
 		for _, h := range hosts {
 			if h == want {
 				return ssh.FingerprintSHA256(pubKey), nil

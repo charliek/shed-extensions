@@ -102,3 +102,20 @@ func TestKnownHostsPinErrors(t *testing.T) {
 		t.Error("expected an error when the host has no pinned key")
 	}
 }
+
+func TestKnownHostsPinSkipsRevoked(t *testing.T) {
+	dir := t.TempDir()
+	_, hostPub := writeTestKey(t, dir, "hostkey")
+	const host, port = "mini3", 2222
+	addr := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
+
+	// A @revoked line for the exact host must NOT be returned as a usable pin.
+	khPath := filepath.Join(dir, "known_hosts")
+	line := "@revoked " + knownhosts.Line([]string{addr}, hostPub) + "\n"
+	if err := os.WriteFile(khPath, []byte(line), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := knownHostsPin(khPath, host, port); err == nil {
+		t.Error("a @revoked host key must not be used as a pin")
+	}
+}
