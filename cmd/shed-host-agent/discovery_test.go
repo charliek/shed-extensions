@@ -35,9 +35,10 @@ sheds:
 		t.Fatalf("LoadDiscoveredServers: %v", err)
 	}
 	// Sorted by name; "bad" (empty host) skipped; mini3 defaults to port 8080.
+	// SSH endpoint (host + ssh_port) is carried through for self-minting.
 	want := []ServerTarget{
-		{Name: "mini2", URL: "http://mini2:8080"},
-		{Name: "mini3", URL: "http://mini3:8080"},
+		{Name: "mini2", URL: "http://mini2:8080", SSHHost: "mini2", SSHPort: 2222},
+		{Name: "mini3", URL: "http://mini3:8080", SSHHost: "mini3", SSHPort: 2222},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -47,7 +48,8 @@ sheds:
 func TestLoadDiscoveredServersTLS(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	// "tls" has an api_url + pin + token; "plain" keeps the legacy http form.
+	// "tls" is a secure server (api_url + pin + ssh_port for self-minting); "plain"
+	// keeps the legacy http form with no ssh_port (SSHPort 0 → can't self-mint).
 	content := `
 servers:
   plain:
@@ -56,6 +58,7 @@ servers:
   tls:
     host: tlshost
     http_port: 8080
+    ssh_port: 2222
     api_url: https://tlshost:8443
     tls_cert_fingerprint: sha256:abc123
     credentials_token: shed_credentials_xyz
@@ -69,9 +72,10 @@ servers:
 		t.Fatalf("LoadDiscoveredServers: %v", err)
 	}
 	// api_url overrides http://host:port; the pin + token are carried through.
+	// SSHHost is always the host; SSHPort is 0 when ssh_port is absent (plain).
 	want := []ServerTarget{
-		{Name: "plain", URL: "http://plainhost:8080"},
-		{Name: "tls", URL: "https://tlshost:8443", Token: "shed_credentials_xyz", TLSFingerprint: "sha256:abc123"},
+		{Name: "plain", URL: "http://plainhost:8080", SSHHost: "plainhost"},
+		{Name: "tls", URL: "https://tlshost:8443", Token: "shed_credentials_xyz", TLSFingerprint: "sha256:abc123", SSHHost: "tlshost", SSHPort: 2222},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
