@@ -1,6 +1,6 @@
 module github.com/charliek/shed-extensions
 
-go 1.24.13
+go 1.25.0
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
@@ -8,7 +8,7 @@ require (
 	github.com/charliek/shed/sdk v0.2.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
-	golang.org/x/crypto v0.36.0
+	golang.org/x/crypto v0.53.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -26,5 +26,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.14 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.18 // indirect
 	github.com/aws/smithy-go v1.24.2 // indirect
-	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 )
+
+// DEV ONLY (auth-issuance-v2): build against the local sibling sdk checkout so
+// the host-agent can use the new sdk.Bootstrap API before the sdk is tagged.
+// Removed at release (Release step 3): bump the require above to the released
+// sdk tag and delete this replace. See the cross-repo release order.
+replace github.com/charliek/shed/sdk => ../shed/sdk
