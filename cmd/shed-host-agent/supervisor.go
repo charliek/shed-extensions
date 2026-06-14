@@ -21,6 +21,9 @@ type SharedDeps struct {
 	DockerApproval ApprovalGate
 	Audit          *AuditLogger
 	Logger         *slog.Logger
+	// Minter mints the per-server credentials token over SSH (secure mode). nil
+	// disables minting (every server then uses its configured Token).
+	Minter *CredentialMinter
 }
 
 // watcherGroup owns the per-server HostClient and handler goroutines for one
@@ -41,10 +44,33 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	ctx, cancel := context.WithCancel(parent)
 	log := deps.Logger.With("server", t.Name, "url", t.URL)
 
+	// In secure mode the agent mints its own credentials token over SSH instead
+	// of using a pasted credentials_token. Falls back to t.Token when the server
+	// has no SSH endpoint (open mode) or the mint fails (logged). NOTE: this mint
+	// is synchronous and runs under the supervisor lock; sdk.Bootstrap self-bounds
+	// to ~15s. 4b-iii moves it behind a lazy refreshing token provider so it no
+	// longer blocks a reconcile and the token is re-minted near expiry.
+	token := t.Token
+	if deps.Minter != nil && t.SSHPort > 0 && t.SSHHost != "" {
+		if minted, _, err := deps.Minter.Mint(ctx, t); err != nil {
+			if token == "" {
+				// No pasted token to fall back to: the group starts but every bus
+				// call will be unauthenticated. Surface it loudly rather than let
+				// the failure show up only later as a 401 at the bus.
+				log.Error("credentials mint over SSH failed and no fallback token is configured; this server's broker will be unauthenticated", "error", err)
+			} else {
+				log.Warn("credentials mint over SSH failed; falling back to configured token", "error", err)
+			}
+		} else {
+			token = minted
+			log.Info("minted credentials token over SSH")
+		}
+	}
+
 	client := sdk.NewHostClient(
 		sdk.WithServerURL(t.URL),
 		sdk.WithLogger(log),
-		sdk.WithToken(t.Token),
+		sdk.WithToken(token),
 		sdk.WithTLSPin(t.TLSFingerprint),
 	)
 

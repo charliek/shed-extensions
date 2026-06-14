@@ -160,6 +160,12 @@ func main() {
 		dockerBackend = b
 	}
 
+	// Credentials minter: in secure mode the agent mints its own credentials
+	// token over each server's SSH _bootstrap channel using its SSH identity key,
+	// verified against the host key shed already pinned in ~/.shed/known_hosts. A
+	// server with no ssh_port (open mode) keeps using its configured token.
+	minter := NewCredentialMinter("~/.ssh/id_ed25519", "~/.shed/known_hosts")
+
 	deps := SharedDeps{
 		SSHBackend:     sshBackend,
 		AWSBackend:     awsBackend,
@@ -169,6 +175,7 @@ func main() {
 		DockerApproval: dockerApproval,
 		Audit:          audit,
 		Logger:         logger,
+		Minter:         minter,
 	}
 	sup := NewSupervisor(ctx, deps)
 
