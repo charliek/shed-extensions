@@ -225,7 +225,7 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 	if err := c.send(helloAckMsg{
 		V: desktopProtocolVersion, Type: "hello_ack", ID: newID(), Ts: nowRFC3339(),
 		Agent:            agentInfo{Version: s.agentVersion, ApprovalMethod: "shed-desktop"},
-		Namespaces:       []string{protocol.NamespaceSSHAgent, protocol.NamespaceAWSCredentials, protocol.NamespaceDockerCredentials},
+		Namespaces:       []string{protocol.NamespaceSSHAgent, protocol.NamespaceAWSCredentials, protocol.NamespaceDockerCredentials, namespaceEgress},
 		GateNamespaces:   s.gateNamespaces,
 		RequestTimeoutMS: int(s.timeout / time.Millisecond),
 		Accepted:         true,

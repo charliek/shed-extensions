@@ -64,6 +64,10 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	if deps.DockerBackend != nil {
 		run(NewDockerHandler(deps.DockerBackend, client, deps.DockerApproval, deps.Audit, t.Name, log).Run)
 	}
+	// Egress-audit fanout: stream this server's egress decisions into the audit
+	// log + desktop feed (read-only; reconnects on its own). Harmless when the
+	// server has egress disabled — the stream just returns 501 and retries.
+	run(NewEgressSubscriber(t, deps.Audit, log).Run)
 
 	done := make(chan struct{})
 	go func() {
