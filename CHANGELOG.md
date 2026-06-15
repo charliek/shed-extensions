@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.4.2
+
+### Added
+
+- **Egress-audit subscriber → desktop feed.** The host-agent subscribes to the
+  server's egress-audit stream and forwards it to the connected shed-desktop
+  app, so outbound-network activity surfaces in the desktop UI
+  ([#36](https://github.com/charliek/shed-extensions/pull/36)).
+- **`token.get` over the desktop UDS.** The host-agent mints a scoped `control`
+  token on demand for the shed-desktop app over the local Unix socket
+  (versioned request/response, fail-closed), so the desktop can drive a
+  secure-mode server without a statically-configured token
+  ([#37](https://github.com/charliek/shed-extensions/pull/37)).
+
+### Changed
+
+- **The host-agent self-mints its `credentials` token over SSH** instead of
+  reading a static `credentials_token` from config. It mints over each server's
+  SSH `_bootstrap` channel using its identity key (verified against the pinned
+  `~/.shed/known_hosts`), auto-refreshes ahead of expiry, and re-mints on a 401;
+  a host-key pin mismatch is terminal. This is the host-agent half of the
+  **auth-issuance-v2** redesign and pairs with **shed v0.7.1** — the
+  host-agent's SSH identity key must be allowlisted on the server, which must
+  expose the `_bootstrap` channel
+  ([#37](https://github.com/charliek/shed-extensions/pull/37)).
+- Bumped `github.com/charliek/shed/sdk` to the released `v0.2.1` (adds the
+  SSH-bootstrap `TokenProvider` + `ErrHostKeyMismatch`), replacing the dev-time
+  local `replace`.
+
 ## v0.4.1
 
 ### Added
