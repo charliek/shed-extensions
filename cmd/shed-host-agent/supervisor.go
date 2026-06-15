@@ -54,8 +54,10 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 		sdk.WithLogger(log),
 		sdk.WithTLSPin(t.TLSFingerprint),
 	}
+	var credSrc *credentialSource
 	if deps.Minter != nil && t.SSHPort > 0 && t.SSHHost != "" {
-		opts = append(opts, sdk.WithTokenProvider(newCredentialSource(ctx, deps.Minter, t)))
+		credSrc = newCredentialSource(ctx, deps.Minter, t)
+		opts = append(opts, sdk.WithTokenProvider(credSrc))
 	} else {
 		opts = append(opts, sdk.WithToken(t.Token))
 	}
@@ -68,6 +70,12 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 			defer wg.Done()
 			fn(ctx)
 		}()
+	}
+
+	// Proactively re-mint the credentials token (jittered) so an idle server's
+	// token stays fresh and a reconnect never pays the mint latency inline.
+	if credSrc != nil {
+		run(credSrc.refreshLoop)
 	}
 
 	run(NewSSHHandler(deps.SSHBackend, client, deps.SSHApproval, deps.Audit, t.Name, log).Run)

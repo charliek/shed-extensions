@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"os"
 	"strconv"
@@ -129,9 +130,19 @@ func knownHostsPin(knownHostsPath, host string, port int) (string, error) {
 	return "", fmt.Errorf("no host key pinned for %s in %s (run `shed server add` first)", want, knownHostsPath)
 }
 
-// tokenRefreshWindow is how long before a credentials token's expiry the source
-// proactively re-mints, so a request never races expiry.
-const tokenRefreshWindow = 2 * time.Hour
+const (
+	// tokenRefreshWindow is how long before expiry an on-demand Token re-mints.
+	tokenRefreshWindow = 2 * time.Hour
+	// The proactive refresh loop re-mints at ~50% of the time remaining until
+	// expiry, jittered, clamped to [minRefreshDelay, maxRefreshDelay]; it uses
+	// defaultRefreshDelay until a token has been minted.
+	defaultRefreshDelay = time.Hour
+	minRefreshDelay     = time.Minute
+	maxRefreshDelay     = 12 * time.Hour
+	// jitterFraction de-synchronizes a fleet re-minting together: the delay is
+	// spread ±jitterFraction around its base.
+	jitterFraction = 0.25
+)
 
 // minter is the subset of CredentialMinter that credentialSource needs; an
 // interface so tests can inject a fake without a live SSH server.
@@ -139,11 +150,21 @@ type minter interface {
 	Mint(ctx context.Context, t ServerTarget) (string, time.Time, error)
 }
 
+// inflightMint coordinates concurrent mints: only one runs at a time, joiners
+// wait on done then read token/err. This is the single-flight that both keeps a
+// re-mint from being duplicated and lets the network call run off s.mu (so a
+// proactive refresh doesn't block a Token caller serving the still-valid token).
+type inflightMint struct {
+	done  chan struct{}
+	token string
+	err   error
+}
+
 // credentialSource is an sdk.TokenProvider backed by the SSH credential minter:
 // it caches a minted token and re-mints on demand (near expiry, or after a 401
-// via Invalidate). A host-key pin mismatch is TERMINAL — a possible MITM — so the
-// source fails closed and never serves a token for that server again, rather than
-// silently downgrading to a weaker credential.
+// via Invalidate) and proactively (refreshLoop). A host-key pin mismatch is
+// TERMINAL — a possible MITM — so the source fails closed and never serves a
+// token for that server again, rather than downgrading to a weaker credential.
 type credentialSource struct {
 	ctx    context.Context
 	mint   minter
@@ -153,6 +174,7 @@ type credentialSource struct {
 	token       string
 	expiry      time.Time
 	terminalErr error
+	inflight    *inflightMint
 }
 
 func newCredentialSource(ctx context.Context, m minter, t ServerTarget) *credentialSource {
@@ -162,16 +184,20 @@ func newCredentialSource(ctx context.Context, m minter, t ServerTarget) *credent
 // Token returns the current credentials token, minting or re-minting as needed.
 func (s *credentialSource) Token() (string, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.terminalErr != nil {
-		return "", s.terminalErr
+		err := s.terminalErr
+		s.mu.Unlock()
+		return "", err
 	}
-	// Serve the cached token until it is within tokenRefreshWindow of expiry (a
-	// zero expiry means a non-expiring token — only Invalidate re-mints it).
-	if s.token != "" && (s.expiry.IsZero() || time.Now().Before(s.expiry.Add(-tokenRefreshWindow))) {
-		return s.token, nil
+	if s.token != "" && !s.staleLocked() {
+		tok := s.token
+		s.mu.Unlock()
+		return tok, nil
 	}
-	return s.mintLocked()
+	call := s.obtainLocked()
+	s.mu.Unlock()
+	<-call.done
+	return call.token, call.err
 }
 
 // Invalidate clears the cached token so the next Token re-mints. Called by the
@@ -182,17 +208,90 @@ func (s *credentialSource) Invalidate() {
 	s.token = ""
 }
 
-// mintLocked re-mints and caches the token; the caller must hold s.mu. A host-key
-// pin mismatch is recorded as terminal (fail closed) so it is never retried.
-func (s *credentialSource) mintLocked() (string, error) {
-	tok, exp, err := s.mint.Mint(s.ctx, s.target)
-	if err != nil {
-		if errors.Is(err, sdk.ErrHostKeyMismatch) {
-			s.terminalErr = fmt.Errorf("refusing to broker %q: SSH host key pin mismatch (possible MITM): %w", s.target.Name, err)
-			return "", s.terminalErr
-		}
-		return "", err // transient (unreachable / auth) — a later Token may retry
+// refresh proactively re-mints, best-effort (errors surface on the next Token).
+// Driven by refreshLoop so an idle server's token stays fresh.
+func (s *credentialSource) refresh() {
+	s.mu.Lock()
+	if s.terminalErr != nil {
+		s.mu.Unlock()
+		return
 	}
-	s.token, s.expiry = tok, exp
-	return tok, nil
+	call := s.obtainLocked()
+	s.mu.Unlock()
+	<-call.done
+}
+
+// staleLocked reports whether the cached token is within tokenRefreshWindow of
+// expiry (a zero expiry is a non-expiring token). The caller holds s.mu.
+func (s *credentialSource) staleLocked() bool {
+	return !s.expiry.IsZero() && !time.Now().Before(s.expiry.Add(-tokenRefreshWindow))
+}
+
+// obtainLocked returns the in-flight mint, starting one (off s.mu, in a goroutine)
+// if none is running so N concurrent callers share ONE mint. The caller holds s.mu.
+func (s *credentialSource) obtainLocked() *inflightMint {
+	if s.inflight != nil {
+		return s.inflight
+	}
+	call := &inflightMint{done: make(chan struct{})}
+	s.inflight = call
+	go s.doMint(call)
+	return call
+}
+
+// doMint performs the mint off s.mu, then stores the result under it. A host-key
+// pin mismatch is recorded as terminal (fail closed) so it is never retried.
+func (s *credentialSource) doMint(call *inflightMint) {
+	tok, exp, err := s.mint.Mint(s.ctx, s.target)
+	s.mu.Lock()
+	s.inflight = nil
+	switch {
+	case err == nil:
+		s.token, s.expiry = tok, exp
+		call.token = tok // error paths leave call.token "" (zero)
+	case errors.Is(err, sdk.ErrHostKeyMismatch):
+		s.terminalErr = fmt.Errorf("refusing to broker %q: SSH host key pin mismatch (possible MITM): %w", s.target.Name, err)
+		err = s.terminalErr
+	}
+	call.err = err
+	s.mu.Unlock()
+	close(call.done)
+}
+
+// refreshLoop proactively re-mints at ~50% of the time until expiry (jittered),
+// so an idle server's token stays fresh and a fleet re-minting after a server
+// restart is spread out rather than thundering. Stops when ctx is done.
+func (s *credentialSource) refreshLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.nextRefreshDelay()):
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		s.refresh()
+	}
+}
+
+// nextRefreshDelay is ~50% of the time until the cached token expires, jittered
+// ±25%, clamped to [minRefreshDelay, maxRefreshDelay]; defaultRefreshDelay when
+// no token has been minted yet.
+func (s *credentialSource) nextRefreshDelay() time.Duration {
+	s.mu.Lock()
+	exp := s.expiry
+	s.mu.Unlock()
+
+	base := defaultRefreshDelay
+	if !exp.IsZero() {
+		if remaining := time.Until(exp); remaining > 0 {
+			base = remaining / 2
+		} else {
+			base = minRefreshDelay
+		}
+	}
+	// (2*rand-1) is uniform in [-1,1), so this spreads d by ±jitterFraction of base.
+	d := base + time.Duration((2*rand.Float64()-1)*jitterFraction*float64(base))
+	return min(max(d, minRefreshDelay), maxRefreshDelay)
 }

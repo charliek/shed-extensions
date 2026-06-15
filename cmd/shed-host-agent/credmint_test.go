@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -205,5 +206,63 @@ func TestCredentialSourceReMintsNearExpiry(t *testing.T) {
 	}
 	if fm.calls != 2 {
 		t.Errorf("mint calls = %d, want 2", fm.calls)
+	}
+}
+
+// minterFunc adapts a function to the minter interface.
+type minterFunc func(context.Context, ServerTarget) (string, time.Time, error)
+
+func (f minterFunc) Mint(ctx context.Context, t ServerTarget) (string, time.Time, error) {
+	return f(ctx, t)
+}
+
+func TestCredentialSourceSingleFlight(t *testing.T) {
+	release := make(chan struct{})
+	var calls int32
+	mf := minterFunc(func(context.Context, ServerTarget) (string, time.Time, error) {
+		atomic.AddInt32(&calls, 1)
+		<-release // hold the mint open while concurrent callers pile up
+		return "tok", time.Now().Add(24 * time.Hour), nil
+	})
+	s := newCredentialSource(context.Background(), mf, ServerTarget{Name: "s"})
+
+	const n = 8
+	var wg sync.WaitGroup
+	got := make([]string, n)
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			got[i], _ = s.Token()
+		}(i)
+	}
+	time.Sleep(50 * time.Millisecond) // let all n goroutines join the single mint
+	close(release)
+	wg.Wait()
+
+	if c := atomic.LoadInt32(&calls); c != 1 {
+		t.Errorf("mint calls = %d, want 1 (single-flight collapses concurrent callers)", c)
+	}
+	for i, tok := range got {
+		if tok != "tok" {
+			t.Errorf("got[%d] = %q, want tok", i, tok)
+		}
+	}
+}
+
+func TestCredentialSourceProactiveRefresh(t *testing.T) {
+	far := time.Now().Add(24 * time.Hour)
+	fm := &fakeMinter{results: []mintResult{{tok: "first", exp: far}, {tok: "second", exp: far}}}
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+
+	if tok, _ := s.Token(); tok != "first" {
+		t.Fatalf("Token = %q, want first", tok)
+	}
+	s.refresh() // proactive re-mint, even though the cached token is still valid
+	if fm.calls != 2 {
+		t.Errorf("mint calls = %d, want 2 (proactive refresh re-mints)", fm.calls)
+	}
+	if tok, _ := s.Token(); tok != "second" {
+		t.Errorf("post-refresh Token = %q, want second", tok)
 	}
 }
