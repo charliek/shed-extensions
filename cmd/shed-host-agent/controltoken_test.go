@@ -62,18 +62,22 @@ servers:
 	fm := &fakeMinter{results: []mintResult{{tok: "x", exp: time.Now().Add(time.Hour)}}}
 	p := newControlTokenProvider(context.Background(), fm, cfg)
 
-	if _, _, err := p.Token("missing"); err == nil {
-		t.Error("expected an error for an unknown server")
+	// All three error before any mint. "open-http" is the case the new https gate
+	// adds: it has an ssh endpoint, so the old SSHPort>0 gate would have let it
+	// through and attempted a doomed mint.
+	cases := []struct {
+		name, server string
+	}{
+		{"unknown server", "missing"},
+		{"no ssh endpoint", "open-no-ssh"},
+		{"open http with ssh endpoint", "open-http"},
 	}
-	// No SSH endpoint at all -> can't bootstrap a mint.
-	if _, _, err := p.Token("open-no-ssh"); err == nil {
-		t.Error("expected an error for a server with no ssh endpoint")
-	}
-	// Has an ssh endpoint but is plain http (open mode) -> not mintable. This is the
-	// case the new https gate adds; the old SSHPort>0 gate would have let it through
-	// and attempted a doomed mint.
-	if _, _, err := p.Token("open-http"); err == nil {
-		t.Error("expected an error for an open (http) server with an ssh endpoint")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := p.Token(tc.server); err == nil {
+				t.Errorf("expected an error for server %q", tc.server)
+			}
+		})
 	}
 	if fm.calls != 0 {
 		t.Errorf("mint calls = %d, want 0 (all error before minting)", fm.calls)
