@@ -56,7 +56,7 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	}
 	var credSrc *credentialSource
 	if deps.Minter != nil && t.SSHPort > 0 && t.SSHHost != "" {
-		credSrc = newCredentialSource(ctx, deps.Minter, t)
+		credSrc = newCredentialSource(ctx, deps.Minter, t, scopeCredentials)
 		opts = append(opts, sdk.WithTokenProvider(credSrc))
 	} else {
 		opts = append(opts, sdk.WithToken(t.Token))

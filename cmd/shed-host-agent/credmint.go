@@ -39,11 +39,18 @@ func NewCredentialMinter(signerPath, knownHostsPath string) *CredentialMinter {
 	}
 }
 
-// Mint bootstraps a fresh credentials token for t over its SSH endpoint and
-// returns the token with its expiry. The host key is verified against the pin
+// Token scopes the host-agent mints over SSH: credentials for its own bus
+// brokering, control for a token.get on the desktop's behalf.
+const (
+	scopeCredentials = "credentials"
+	scopeControl     = "control"
+)
+
+// Mint bootstraps a fresh token of the given scope for t over its SSH endpoint
+// and returns the token with its expiry. The host key is verified against the pin
 // already in known_hosts (the same trust `shed server add` established), so this
 // never trusts an unpinned server.
-func (m *CredentialMinter) Mint(ctx context.Context, t ServerTarget) (string, time.Time, error) {
+func (m *CredentialMinter) Mint(ctx context.Context, t ServerTarget, scope string) (string, time.Time, error) {
 	signer, err := m.cachedSigner()
 	if err != nil {
 		return "", time.Time{}, err
@@ -53,9 +60,9 @@ func (m *CredentialMinter) Mint(ctx context.Context, t ServerTarget) (string, ti
 		return "", time.Time{}, err
 	}
 	addr := net.JoinHostPort(t.SSHHost, strconv.Itoa(t.SSHPort))
-	bundle, err := sdk.Bootstrap(ctx, addr, signer, pin, "credentials", "host-agent")
+	bundle, err := sdk.Bootstrap(ctx, addr, signer, pin, scope, "host-agent")
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("bootstrapping credentials token for %q: %w", t.Name, err)
+		return "", time.Time{}, fmt.Errorf("bootstrapping %s token for %q: %w", scope, t.Name, err)
 	}
 	return bundle.Token, bundle.ExpiresAt, nil
 }
@@ -147,7 +154,7 @@ const (
 // minter is the subset of CredentialMinter that credentialSource needs; an
 // interface so tests can inject a fake without a live SSH server.
 type minter interface {
-	Mint(ctx context.Context, t ServerTarget) (string, time.Time, error)
+	Mint(ctx context.Context, t ServerTarget, scope string) (string, time.Time, error)
 }
 
 // inflightMint coordinates concurrent mints: only one runs at a time, joiners
@@ -169,6 +176,7 @@ type credentialSource struct {
 	ctx    context.Context
 	mint   minter
 	target ServerTarget
+	scope  string // scopeCredentials | scopeControl
 
 	mu          sync.Mutex
 	token       string
@@ -177,8 +185,8 @@ type credentialSource struct {
 	inflight    *inflightMint
 }
 
-func newCredentialSource(ctx context.Context, m minter, t ServerTarget) *credentialSource {
-	return &credentialSource{ctx: ctx, mint: m, target: t}
+func newCredentialSource(ctx context.Context, m minter, t ServerTarget, scope string) *credentialSource {
+	return &credentialSource{ctx: ctx, mint: m, target: t, scope: scope}
 }
 
 // Token returns the current credentials token, minting or re-minting as needed.
@@ -242,7 +250,7 @@ func (s *credentialSource) obtainLocked() *inflightMint {
 // doMint performs the mint off s.mu, then stores the result under it. A host-key
 // pin mismatch is recorded as terminal (fail closed) so it is never retried.
 func (s *credentialSource) doMint(call *inflightMint) {
-	tok, exp, err := s.mint.Mint(s.ctx, s.target)
+	tok, exp, err := s.mint.Mint(s.ctx, s.target, s.scope)
 	s.mu.Lock()
 	s.inflight = nil
 	switch {

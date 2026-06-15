@@ -140,7 +140,7 @@ type fakeMinter struct {
 	results []mintResult
 }
 
-func (f *fakeMinter) Mint(context.Context, ServerTarget) (string, time.Time, error) {
+func (f *fakeMinter) Mint(context.Context, ServerTarget, string) (string, time.Time, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	i := f.calls
@@ -155,7 +155,7 @@ func (f *fakeMinter) Mint(context.Context, ServerTarget) (string, time.Time, err
 func TestCredentialSourceCachesAndReMints(t *testing.T) {
 	far := time.Now().Add(24 * time.Hour)
 	fm := &fakeMinter{results: []mintResult{{tok: "tok1", exp: far}, {tok: "tok2", exp: far}}}
-	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"}, scopeCredentials)
 
 	if got, _ := s.Token(); got != "tok1" {
 		t.Fatalf("Token = %q, want tok1", got)
@@ -177,7 +177,7 @@ func TestCredentialSourceCachesAndReMints(t *testing.T) {
 
 func TestCredentialSourcePinMismatchTerminal(t *testing.T) {
 	fm := &fakeMinter{results: []mintResult{{err: fmt.Errorf("bootstrap: %w", sdk.ErrHostKeyMismatch)}}}
-	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"}, scopeCredentials)
 
 	if _, err := s.Token(); err == nil {
 		t.Fatal("expected a terminal error on a host-key pin mismatch")
@@ -195,7 +195,7 @@ func TestCredentialSourceReMintsNearExpiry(t *testing.T) {
 	near := time.Now().Add(tokenRefreshWindow / 2) // inside the refresh window
 	far := time.Now().Add(24 * time.Hour)
 	fm := &fakeMinter{results: []mintResult{{tok: "near", exp: near}, {tok: "fresh", exp: far}}}
-	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"}, scopeCredentials)
 
 	if got, _ := s.Token(); got != "near" {
 		t.Fatalf("Token = %q, want near", got)
@@ -210,21 +210,21 @@ func TestCredentialSourceReMintsNearExpiry(t *testing.T) {
 }
 
 // minterFunc adapts a function to the minter interface.
-type minterFunc func(context.Context, ServerTarget) (string, time.Time, error)
+type minterFunc func(context.Context, ServerTarget, string) (string, time.Time, error)
 
-func (f minterFunc) Mint(ctx context.Context, t ServerTarget) (string, time.Time, error) {
-	return f(ctx, t)
+func (f minterFunc) Mint(ctx context.Context, t ServerTarget, scope string) (string, time.Time, error) {
+	return f(ctx, t, scope)
 }
 
 func TestCredentialSourceSingleFlight(t *testing.T) {
 	release := make(chan struct{})
 	var calls int32
-	mf := minterFunc(func(context.Context, ServerTarget) (string, time.Time, error) {
+	mf := minterFunc(func(context.Context, ServerTarget, string) (string, time.Time, error) {
 		atomic.AddInt32(&calls, 1)
 		<-release // hold the mint open while concurrent callers pile up
 		return "tok", time.Now().Add(24 * time.Hour), nil
 	})
-	s := newCredentialSource(context.Background(), mf, ServerTarget{Name: "s"})
+	s := newCredentialSource(context.Background(), mf, ServerTarget{Name: "s"}, scopeCredentials)
 
 	const n = 8
 	var wg sync.WaitGroup
@@ -253,7 +253,7 @@ func TestCredentialSourceSingleFlight(t *testing.T) {
 func TestCredentialSourceProactiveRefresh(t *testing.T) {
 	far := time.Now().Add(24 * time.Hour)
 	fm := &fakeMinter{results: []mintResult{{tok: "first", exp: far}, {tok: "second", exp: far}}}
-	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"})
+	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"}, scopeCredentials)
 
 	if tok, _ := s.Token(); tok != "first" {
 		t.Fatalf("Token = %q, want first", tok)
