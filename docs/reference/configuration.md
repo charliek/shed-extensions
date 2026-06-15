@@ -135,8 +135,16 @@ A single `shed-host-agent` process can broker credentials for **many** shed
 servers at once, instead of running one process per server. Add a `discovery:`
 block — its presence switches the agent into multi-server mode (and `server:`
 above is then ignored). Servers are discovered from shed's own CLI config
-(`~/.shed/config.yaml`, the same `servers:` you manage with `shed server add`);
-a server's broker URL is `http://<host>:<http_port>`.
+(`~/.shed/config.yaml`, the same `servers:` you manage with `shed server add`).
+A server's broker URL is its pinned `api_url` (`https://…`) when present, else
+`http://<host>:<http_port>`.
+
+The agent **self-mints its `credentials` token only for secure servers** — those
+reached over an `https` `api_url` (which `shed server add` writes for a
+secure-mode server; tokens ⟺ TLS ⟺ secure). For an **open-mode** server (plain
+`http`) no token is needed: the agent connects to the credential bus
+unauthenticated and does not attempt a mint. (The presence of an `ssh_port`
+alone is *not* the signal — every shed server has an SSH endpoint.)
 
 ```yaml
 discovery:
