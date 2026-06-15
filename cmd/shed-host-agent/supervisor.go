@@ -21,6 +21,9 @@ type SharedDeps struct {
 	DockerApproval ApprovalGate
 	Audit          *AuditLogger
 	Logger         *slog.Logger
+	// Minter mints the per-server credentials token over SSH (secure mode). nil
+	// disables minting (every server then uses its configured Token).
+	Minter *CredentialMinter
 }
 
 // watcherGroup owns the per-server HostClient and handler goroutines for one
@@ -41,12 +44,24 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	ctx, cancel := context.WithCancel(parent)
 	log := deps.Logger.With("server", t.Name, "url", t.URL)
 
-	client := sdk.NewHostClient(
+	// A secure server (SSH endpoint present) authenticates with a self-minted,
+	// auto-refreshing credentials token via a token provider: the mint happens
+	// lazily on the first request (off this lock) and re-mints near expiry / on a
+	// 401, and a host-key pin mismatch fails closed. An open-mode server (no SSH
+	// endpoint) keeps using its configured static token.
+	opts := []sdk.HostClientOption{
 		sdk.WithServerURL(t.URL),
 		sdk.WithLogger(log),
-		sdk.WithToken(t.Token),
 		sdk.WithTLSPin(t.TLSFingerprint),
-	)
+	}
+	var credSrc *credentialSource
+	if deps.Minter != nil && t.SSHPort > 0 && t.SSHHost != "" {
+		credSrc = newCredentialSource(ctx, deps.Minter, t, scopeCredentials)
+		opts = append(opts, sdk.WithTokenProvider(credSrc))
+	} else {
+		opts = append(opts, sdk.WithToken(t.Token))
+	}
+	client := sdk.NewHostClient(opts...)
 
 	var wg sync.WaitGroup
 	run := func(fn func(context.Context)) {
@@ -55,6 +70,12 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 			defer wg.Done()
 			fn(ctx)
 		}()
+	}
+
+	// Proactively re-mint the credentials token (jittered) so an idle server's
+	// token stays fresh and a reconnect never pays the mint latency inline.
+	if credSrc != nil {
+		run(credSrc.refreshLoop)
 	}
 
 	run(NewSSHHandler(deps.SSHBackend, client, deps.SSHApproval, deps.Audit, t.Name, log).Run)

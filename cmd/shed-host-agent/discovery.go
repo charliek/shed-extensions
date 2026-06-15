@@ -20,6 +20,9 @@ type shedClientConfig struct {
 type shedServerEntry struct {
 	Host     string `yaml:"host"`
 	HTTPPort int    `yaml:"http_port"`
+	// SSHPort is the server's SSH port, used to mint a credentials token over the
+	// _bootstrap channel. Matches the shed CLI's ssh_port field.
+	SSHPort int `yaml:"ssh_port"`
 	// CredentialsToken is the bearer token the host-agent sends to the
 	// credential bus. Matches the shed CLI's credentials_token field.
 	CredentialsToken string `yaml:"credentials_token,omitempty"`
@@ -90,6 +93,8 @@ func LoadDiscoveredServers(path string) ([]ServerTarget, error) {
 			URL:            url,
 			Token:          entry.CredentialsToken,
 			TLSFingerprint: entry.TLSCertFingerprint,
+			SSHHost:        entry.Host,
+			SSHPort:        entry.SSHPort,
 		})
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].Name < targets[j].Name })

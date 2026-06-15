@@ -130,11 +130,19 @@ type ServerTarget struct {
 	Name string
 	URL  string
 	// Token is the credentials-scoped bearer token sent to the shed-server
-	// credential bus. Empty when the server isn't token-gated.
+	// credential bus. Empty when the server isn't token-gated. In secure mode
+	// the agent mints this itself over SSH (Phase 4) rather than reading a pasted
+	// credentials_token.
 	Token string
 	// TLSFingerprint pins the server's self-signed TLS cert ("sha256:<hex>")
 	// when URL is https. Empty for plain HTTP.
 	TLSFingerprint string
+	// SSHHost / SSHPort are the server's SSH endpoint, used to mint a credentials
+	// token over the _bootstrap channel (sdk.Bootstrap). SSHPort == 0 means the
+	// discovery entry carried no ssh_port (e.g. an open-mode server) — the agent
+	// then can't self-mint and falls back to Token.
+	SSHHost string
+	SSHPort int
 }
 
 // ResolveTargets computes the desired set of servers to watch. In single-server
