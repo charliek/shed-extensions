@@ -63,6 +63,32 @@ func groupNames(s *Supervisor) []string {
 	return names
 }
 
+func TestShouldMint(t *testing.T) {
+	minter := &CredentialMinter{} // non-nil; never dialed in this test
+
+	tests := []struct {
+		name string
+		deps SharedDeps
+		tgt  ServerTarget
+		want bool
+	}{
+		{"https + ssh + minter", SharedDeps{Minter: minter}, ServerTarget{URL: "https://h:8443", SSHHost: "h", SSHPort: 2222}, true},
+		{"HTTPS uppercase normalized", SharedDeps{Minter: minter}, ServerTarget{URL: "HTTPS://h:8443", SSHHost: "h", SSHPort: 2222}, true},
+		{"http is open -> no mint", SharedDeps{Minter: minter}, ServerTarget{URL: "http://h:8080", SSHHost: "h", SSHPort: 2222}, false},
+		{"empty url -> no mint", SharedDeps{Minter: minter}, ServerTarget{URL: "", SSHHost: "h", SSHPort: 2222}, false},
+		{"nil minter -> no mint", SharedDeps{}, ServerTarget{URL: "https://h:8443", SSHHost: "h", SSHPort: 2222}, false},
+		{"no ssh host -> no mint", SharedDeps{Minter: minter}, ServerTarget{URL: "https://h:8443", SSHHost: "", SSHPort: 2222}, false},
+		{"no ssh port -> no mint", SharedDeps{Minter: minter}, ServerTarget{URL: "https://h:8443", SSHHost: "h", SSHPort: 0}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldMint(tc.deps, tc.tgt); got != tc.want {
+				t.Errorf("shouldMint() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSupervisorReconcileAddRemove(t *testing.T) {
 	f := &fakeGroups{}
 	s := newTestSupervisor(f)

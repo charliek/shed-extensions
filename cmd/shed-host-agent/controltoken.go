@@ -42,7 +42,8 @@ func (p *controlTokenProvider) Token(serverName string) (string, time.Time, erro
 }
 
 // resolve looks the server up by name in the shed CLI config and returns its
-// target, requiring an SSH endpoint (only a secure server can mint).
+// target. Minting requires both an SSH endpoint (to bootstrap over) and a secure
+// (https) server — an open http server needs no token and can't be minted for.
 func (p *controlTokenProvider) resolve(name string) (ServerTarget, error) {
 	targets, err := LoadDiscoveredServers(p.sourcePath)
 	if err != nil {
@@ -51,7 +52,10 @@ func (p *controlTokenProvider) resolve(name string) (ServerTarget, error) {
 	for _, t := range targets {
 		if t.Name == name {
 			if t.SSHHost == "" || t.SSHPort == 0 {
-				return ServerTarget{}, fmt.Errorf("server %q has no ssh_port to mint a control token over", name)
+				return ServerTarget{}, fmt.Errorf("server %q has no ssh endpoint to mint a control token over", name)
+			}
+			if !t.IsSecure() {
+				return ServerTarget{}, fmt.Errorf("server %q is not a secure (https) server; control-token minting is unavailable", name)
 			}
 			return t, nil
 		}

@@ -138,11 +138,21 @@ type ServerTarget struct {
 	// when URL is https. Empty for plain HTTP.
 	TLSFingerprint string
 	// SSHHost / SSHPort are the server's SSH endpoint, used to mint a credentials
-	// token over the _bootstrap channel (sdk.Bootstrap). SSHPort == 0 means the
-	// discovery entry carried no ssh_port (e.g. an open-mode server) — the agent
-	// then can't self-mint and falls back to Token.
+	// token over the _bootstrap channel (sdk.Bootstrap). Every shed server has an
+	// SSH endpoint (it is how sheds are reached), so this is NOT the open/secure
+	// signal — IsSecure (the https scheme) is. SSHPort == 0 only when the discovery
+	// entry omitted ssh_port, in which case the agent can't self-mint regardless.
 	SSHHost string
 	SSHPort int
+}
+
+// IsSecure reports whether the server is reached over https — the authoritative
+// local signal that it runs in secure mode (tokens ⟺ TLS ⟺ secure) and that the
+// agent should self-mint a token. Scheme, not TLSFingerprint presence, is the
+// signal: it matches the SDK's applyTLSPin / shed's isHTTPSURL idiom and tolerates
+// a hand-edited config that keeps https but drops the pin.
+func (t ServerTarget) IsSecure() bool {
+	return strings.HasPrefix(strings.ToLower(t.URL), "https://")
 }
 
 // ResolveTargets computes the desired set of servers to watch. In single-server

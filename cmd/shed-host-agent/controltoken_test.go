@@ -21,8 +21,8 @@ func TestControlTokenProviderMintsAndCaches(t *testing.T) {
 	cfg := writeShedConfig(t, `
 servers:
   prod:
+    api_url: https://prod.example:8443
     host: prod.example
-    http_port: 8080
     ssh_port: 2222
 `)
 	far := time.Now().Add(24 * time.Hour)
@@ -51,11 +51,12 @@ servers:
 func TestControlTokenProviderErrors(t *testing.T) {
 	cfg := writeShedConfig(t, `
 servers:
-  open:
-    host: open.example
+  open-no-ssh:
+    host: open1.example
     http_port: 8080
-  secure:
-    host: secure.example
+  open-http:
+    host: open2.example
+    http_port: 8080
     ssh_port: 2222
 `)
 	fm := &fakeMinter{results: []mintResult{{tok: "x", exp: time.Now().Add(time.Hour)}}}
@@ -64,10 +65,17 @@ servers:
 	if _, _, err := p.Token("missing"); err == nil {
 		t.Error("expected an error for an unknown server")
 	}
-	if _, _, err := p.Token("open"); err == nil {
-		t.Error("expected an error for a server with no ssh_port")
+	// No SSH endpoint at all -> can't bootstrap a mint.
+	if _, _, err := p.Token("open-no-ssh"); err == nil {
+		t.Error("expected an error for a server with no ssh endpoint")
+	}
+	// Has an ssh endpoint but is plain http (open mode) -> not mintable. This is the
+	// case the new https gate adds; the old SSHPort>0 gate would have let it through
+	// and attempted a doomed mint.
+	if _, _, err := p.Token("open-http"); err == nil {
+		t.Error("expected an error for an open (http) server with an ssh endpoint")
 	}
 	if fm.calls != 0 {
-		t.Errorf("mint calls = %d, want 0 (both error before minting)", fm.calls)
+		t.Errorf("mint calls = %d, want 0 (all error before minting)", fm.calls)
 	}
 }
