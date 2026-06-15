@@ -125,8 +125,24 @@ func main() {
 	// for the all-namespace audit/event stream and shed-desktop-policy approval
 	// decisions. It's the program's public interface, so it's not gated on
 	// config; with no consumer connected, delegated approvals fail closed.
+	// Credentials minter: in secure mode the agent mints its own credentials token
+	// over each server's SSH _bootstrap channel using its SSH identity key, verified
+	// against the host key shed already pinned in ~/.shed/known_hosts. A server with
+	// no ssh_port (open mode) keeps using its configured token. The same minter
+	// backs the desktop's token.get (control tokens), so build it before the desktop.
+	minter := NewCredentialMinter("~/.ssh/id_ed25519", "~/.shed/known_hosts")
+
+	// token.get resolves servers from the shed CLI config (the discovery source, or
+	// its default in single-server mode) and mints CONTROL tokens for any allowlisted
+	// server there — broad minting, not limited to the servers the agent brokers.
+	configSource := DefaultDiscoverySource
+	if cfg.Discovery != nil {
+		configSource = cfg.Discovery.Source // already defaulted + tilde-expanded by applyDefaults
+	}
+
 	gateNamespaces := desktopGateNamespaces(cfg)
 	desktop := NewDesktopServer(desktopSocketPath(), approvalTimeout, audit, version.FullInfo(), gateNamespaces, logger)
+	desktop.SetControlTokens(newControlTokenProvider(ctx, minter, configSource)) // before Listen
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -159,12 +175,6 @@ func main() {
 	} else {
 		dockerBackend = b
 	}
-
-	// Credentials minter: in secure mode the agent mints its own credentials
-	// token over each server's SSH _bootstrap channel using its SSH identity key,
-	// verified against the host key shed already pinned in ~/.shed/known_hosts. A
-	// server with no ssh_port (open mode) keeps using its configured token.
-	minter := NewCredentialMinter("~/.ssh/id_ed25519", "~/.shed/known_hosts")
 
 	deps := SharedDeps{
 		SSHBackend:     sshBackend,

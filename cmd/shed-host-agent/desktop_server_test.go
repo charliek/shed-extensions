@@ -397,3 +397,38 @@ func TestDesktopDecisionDetailAudited(t *testing.T) {
 		t.Fatalf("outcome = %+v, want decided_by=user scope=per-session ttl=4h", got.out)
 	}
 }
+
+func TestDesktopTokenGet(t *testing.T) {
+	cfg := writeShedConfig(t, "\nservers:\n  prod:\n    host: prod.example\n    ssh_port: 2222\n")
+	far := time.Now().Add(24 * time.Hour)
+	fm := &fakeMinter{results: []mintResult{{tok: "ctl-xyz", exp: far}}}
+
+	sock := shortSocketPath(t)
+	audit := NewAuditLogger(LogConfig{Enabled: false}, testLogger())
+	s := NewDesktopServer(sock, 100*time.Millisecond, audit, "test", nil, testLogger())
+	s.SetControlTokens(newControlTokenProvider(context.Background(), fm, cfg)) // before Listen
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Listen(ctx)
+	waitForSocket(t, sock)
+
+	conn, r := dialHello(t, s, sock)
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte(`{"type":"token.get","id":"req-1","server":"prod"}` + "\n")); err != nil {
+		t.Fatalf("write token.get: %v", err)
+	}
+	resp := readType(t, conn, r, "token.response")
+	if resp["in_reply_to"] != "req-1" {
+		t.Errorf("in_reply_to = %v, want req-1", resp["in_reply_to"])
+	}
+	if resp["server"] != "prod" {
+		t.Errorf("server = %v, want prod", resp["server"])
+	}
+	if resp["token"] != "ctl-xyz" {
+		t.Errorf("token = %v, want ctl-xyz", resp["token"])
+	}
+	if e, _ := resp["error"].(string); e != "" {
+		t.Errorf("unexpected error: %q", e)
+	}
+}

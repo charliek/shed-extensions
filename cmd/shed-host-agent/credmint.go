@@ -162,9 +162,10 @@ type minter interface {
 // re-mint from being duplicated and lets the network call run off s.mu (so a
 // proactive refresh doesn't block a Token caller serving the still-valid token).
 type inflightMint struct {
-	done  chan struct{}
-	token string
-	err   error
+	done   chan struct{}
+	token  string
+	expiry time.Time
+	err    error
 }
 
 // credentialSource is an sdk.TokenProvider backed by the SSH credential minter:
@@ -189,23 +190,32 @@ func newCredentialSource(ctx context.Context, m minter, t ServerTarget, scope st
 	return &credentialSource{ctx: ctx, mint: m, target: t, scope: scope}
 }
 
-// Token returns the current credentials token, minting or re-minting as needed.
+// Token returns the current token, minting or re-minting as needed. Implements
+// sdk.TokenProvider.
 func (s *credentialSource) Token() (string, error) {
+	tok, _, err := s.tokenWithExpiry()
+	return tok, err
+}
+
+// tokenWithExpiry is Token plus the token's expiry — the form the control-token
+// provider (token.get) needs so the desktop knows when to ask again. A zero
+// expiry means the server returned none.
+func (s *credentialSource) tokenWithExpiry() (string, time.Time, error) {
 	s.mu.Lock()
 	if s.terminalErr != nil {
 		err := s.terminalErr
 		s.mu.Unlock()
-		return "", err
+		return "", time.Time{}, err
 	}
 	if s.token != "" && !s.staleLocked() {
-		tok := s.token
+		tok, exp := s.token, s.expiry
 		s.mu.Unlock()
-		return tok, nil
+		return tok, exp, nil
 	}
 	call := s.obtainLocked()
 	s.mu.Unlock()
 	<-call.done
-	return call.token, call.err
+	return call.token, call.expiry, call.err
 }
 
 // Invalidate clears the cached token so the next Token re-mints. Called by the
@@ -256,7 +266,7 @@ func (s *credentialSource) doMint(call *inflightMint) {
 	switch {
 	case err == nil:
 		s.token, s.expiry = tok, exp
-		call.token = tok // error paths leave call.token "" (zero)
+		call.token, call.expiry = tok, exp // error paths leave call.token "" (zero)
 	case errors.Is(err, sdk.ErrHostKeyMismatch):
 		s.terminalErr = fmt.Errorf("refusing to broker %q: SSH host key pin mismatch (possible MITM): %w", s.target.Name, err)
 		err = s.terminalErr

@@ -9,8 +9,8 @@ import (
 // desktop_protocol.go — the UDS wire protocol between shed-host-agent and the
 // shed-desktop app. Newline-delimited JSON, one typed envelope per line.
 //
-//   app → agent:  hello, approval_response, pong
-//   agent → app:  hello_ack, approval_request, event, ping
+//   app → agent:  hello, approval_response, pong, token.get
+//   agent → app:  hello_ack, approval_request, event, ping, token.response
 
 const desktopProtocolVersion = 2
 
@@ -98,6 +98,31 @@ type pingMsg struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 	Ts   string `json:"ts"`
+}
+
+// token.get is a request/response pair (app → agent → app), correlated by ID
+// (echoed back as in_reply_to). The app asks for a CONTROL-scoped token for a
+// named server it wants to reach; the agent mints it over SSH on the app's behalf.
+
+// tokenGetMsg is the app's request (inbound).
+type tokenGetMsg struct {
+	Type   string `json:"type"`
+	ID     string `json:"id"`
+	Server string `json:"server"`
+}
+
+// tokenResponseMsg is the agent's reply (outbound). On failure Error is set and
+// Token/ExpiresAt are empty — fail closed, never a partial token.
+type tokenResponseMsg struct {
+	V         int    `json:"v"`
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Ts        string `json:"ts"`
+	InReplyTo string `json:"in_reply_to"`
+	Server    string `json:"server"`
+	Token     string `json:"token,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // envelopeType peeks at a frame's discriminator without fully decoding it.

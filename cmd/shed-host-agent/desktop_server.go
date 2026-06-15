@@ -138,7 +138,8 @@ type DesktopServer struct {
 	logger         *slog.Logger
 	timeout        time.Duration
 	agentVersion   string
-	gateNamespaces []string // namespaces whose policy is shed-desktop
+	gateNamespaces []string              // namespaces whose policy is shed-desktop
+	controlTokens  *controlTokenProvider // answers token.get; nil makes it fail closed
 
 	mu       sync.Mutex
 	consumer *consumerConn
@@ -168,6 +169,12 @@ func NewDesktopServer(socketPath string, approvalTimeout time.Duration, audit *A
 		pending:        make(map[string]pendingReq),
 		ringMax:        100,
 	}
+}
+
+// SetControlTokens wires the provider that answers token.get requests. Call it
+// before Listen; a nil provider makes token.get fail closed.
+func (s *DesktopServer) SetControlTokens(p *controlTokenProvider) {
+	s.controlTokens = p
 }
 
 // Listen binds the socket and serves until ctx is cancelled.
@@ -270,10 +277,38 @@ func (s *DesktopServer) handleConn(ctx context.Context, conn net.Conn) {
 					ttl:       resp.TTL,
 				}, c)
 			}
+		case "token.get":
+			var req tokenGetMsg
+			if json.Unmarshal(line, &req) == nil {
+				// Mint in its own goroutine: a bootstrap is a bounded SSH round-trip
+				// and must not stall this connection's read loop (and thus approvals).
+				go s.handleTokenGet(c, req)
+			}
 		case "pong":
 			// liveness only
 		}
 	}
+}
+
+// handleTokenGet answers a token.get: mint a control-scoped token for the
+// requested server and reply with token.response. On any failure Error is set
+// and Token/ExpiresAt stay empty — fail closed, never a partial token.
+func (s *DesktopServer) handleTokenGet(c *consumerConn, req tokenGetMsg) {
+	resp := tokenResponseMsg{
+		V: desktopProtocolVersion, Type: "token.response", ID: newID(), Ts: nowRFC3339(),
+		InReplyTo: req.ID, Server: req.Server,
+	}
+	if s.controlTokens == nil {
+		resp.Error = "control-token minting is not available"
+	} else if tok, exp, err := s.controlTokens.Token(req.Server); err != nil {
+		resp.Error = err.Error()
+	} else {
+		resp.Token = tok
+		if !exp.IsZero() {
+			resp.ExpiresAt = exp.UTC().Format(time.RFC3339)
+		}
+	}
+	_ = c.send(resp)
 }
 
 // RequestApproval sends an approval request to the connected app and blocks on
