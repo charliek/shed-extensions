@@ -21,8 +21,8 @@ func TestControlTokenProviderMintsAndCaches(t *testing.T) {
 	cfg := writeShedConfig(t, `
 servers:
   prod:
+    api_url: https://prod.example:8443
     host: prod.example
-    http_port: 8080
     ssh_port: 2222
 `)
 	far := time.Now().Add(24 * time.Hour)
@@ -51,23 +51,35 @@ servers:
 func TestControlTokenProviderErrors(t *testing.T) {
 	cfg := writeShedConfig(t, `
 servers:
-  open:
-    host: open.example
+  open-no-ssh:
+    host: open1.example
     http_port: 8080
-  secure:
-    host: secure.example
+  open-http:
+    host: open2.example
+    http_port: 8080
     ssh_port: 2222
 `)
 	fm := &fakeMinter{results: []mintResult{{tok: "x", exp: time.Now().Add(time.Hour)}}}
 	p := newControlTokenProvider(context.Background(), fm, cfg)
 
-	if _, _, err := p.Token("missing"); err == nil {
-		t.Error("expected an error for an unknown server")
+	// All three error before any mint. "open-http" is the case the new https gate
+	// adds: it has an ssh endpoint, so the old SSHPort>0 gate would have let it
+	// through and attempted a doomed mint.
+	cases := []struct {
+		name, server string
+	}{
+		{"unknown server", "missing"},
+		{"no ssh endpoint", "open-no-ssh"},
+		{"open http with ssh endpoint", "open-http"},
 	}
-	if _, _, err := p.Token("open"); err == nil {
-		t.Error("expected an error for a server with no ssh_port")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := p.Token(tc.server); err == nil {
+				t.Errorf("expected an error for server %q", tc.server)
+			}
+		})
 	}
 	if fm.calls != 0 {
-		t.Errorf("mint calls = %d, want 0 (both error before minting)", fm.calls)
+		t.Errorf("mint calls = %d, want 0 (all error before minting)", fm.calls)
 	}
 }

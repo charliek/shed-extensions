@@ -125,11 +125,12 @@ func main() {
 	// for the all-namespace audit/event stream and shed-desktop-policy approval
 	// decisions. It's the program's public interface, so it's not gated on
 	// config; with no consumer connected, delegated approvals fail closed.
-	// Credentials minter: in secure mode the agent mints its own credentials token
-	// over each server's SSH _bootstrap channel using its SSH identity key, verified
-	// against the host key shed already pinned in ~/.shed/known_hosts. A server with
-	// no ssh_port (open mode) keeps using its configured token. The same minter
-	// backs the desktop's token.get (control tokens), so build it before the desktop.
+	// Credentials minter: for a secure (https) server the agent mints its own
+	// credentials token over the server's SSH _bootstrap channel using its SSH
+	// identity key, verified against the host key shed already pinned in
+	// ~/.shed/known_hosts. An open-mode (http) server needs no token and keeps its
+	// (empty) configured token — see shouldMint. The same minter backs the desktop's
+	// token.get (control tokens), so build it before the desktop.
 	minter := NewCredentialMinter("~/.ssh/id_ed25519", "~/.shed/known_hosts")
 
 	// token.get resolves servers from the shed CLI config (the discovery source, or

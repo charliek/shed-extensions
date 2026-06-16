@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The host-agent no longer attempts to mint a credentials token against
+  open-mode servers.** It now keys minting on a secure (`https`) `api_url` rather
+  than merely on the presence of an `ssh_port` — every shed server has an SSH
+  endpoint, so the old heuristic tried (and failed) to mint against open-mode
+  `http` servers, logging a `"token provider returned no token; sending
+  unauthenticated"` WARN on every bus reconnect (~every 15–30s). Open-mode
+  servers are now brokered unauthenticated with no mint attempt; secure
+  (`https`) servers mint as before. The desktop `token.get` path is gated the
+  same way.
+
 ## v0.4.2
 
 ### Added

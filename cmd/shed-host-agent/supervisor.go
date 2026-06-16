@@ -36,6 +36,17 @@ type watcherGroup struct {
 	done   chan struct{}
 }
 
+// shouldMint reports whether the agent should self-mint a credentials token for
+// t (attaching a token provider) rather than send its configured, usually-empty
+// static token. Minting is warranted only for a SECURE server, whose authoritative
+// local signal is an https api_url (tokens ⟺ TLS ⟺ secure; `shed server add` always
+// writes an https api_url for a secure server). It also needs a usable SSH endpoint
+// to mint over and a configured minter. Note: SSHPort>0 alone is NOT the signal —
+// every shed server has an SSH endpoint, including open-mode ones.
+func shouldMint(deps SharedDeps, t ServerTarget) bool {
+	return deps.Minter != nil && t.SSHHost != "" && t.SSHPort > 0 && t.IsSecure()
+}
+
 // startWatcherGroup builds a per-server HostClient and runs the SSH/AWS/Docker
 // handlers (each only when its backend is present) under a child context. The
 // SDK's Subscribe reconnects on its own, so an offline server simply retries in
@@ -44,18 +55,21 @@ func startWatcherGroup(parent context.Context, t ServerTarget, deps SharedDeps) 
 	ctx, cancel := context.WithCancel(parent)
 	log := deps.Logger.With("server", t.Name, "url", t.URL)
 
-	// A secure server (SSH endpoint present) authenticates with a self-minted,
-	// auto-refreshing credentials token via a token provider: the mint happens
-	// lazily on the first request (off this lock) and re-mints near expiry / on a
-	// 401, and a host-key pin mismatch fails closed. An open-mode server (no SSH
-	// endpoint) keeps using its configured static token.
+	// A SECURE server (reached over an https api_url) authenticates with a
+	// self-minted, auto-refreshing credentials token: the mint happens lazily on
+	// the first request (off this lock), re-mints near expiry / on a 401, and a
+	// host-key pin mismatch fails closed. An OPEN-mode server (plain http) needs no
+	// token and uses its (usually empty) configured static token. We must NOT mint
+	// against an open server: shed-server's _bootstrap handler refuses unless SSH
+	// enforce is on, so the mint fails and would log a WARN on every bus reconnect.
+	// shouldMint encodes that decision.
 	opts := []sdk.HostClientOption{
 		sdk.WithServerURL(t.URL),
 		sdk.WithLogger(log),
 		sdk.WithTLSPin(t.TLSFingerprint),
 	}
 	var credSrc *credentialSource
-	if deps.Minter != nil && t.SSHPort > 0 && t.SSHHost != "" {
+	if shouldMint(deps, t) {
 		credSrc = newCredentialSource(ctx, deps.Minter, t, scopeCredentials)
 		opts = append(opts, sdk.WithTokenProvider(credSrc))
 	} else {
