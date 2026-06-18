@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -70,7 +71,7 @@ func TestEgressSubscriber_Stream(t *testing.T) {
 	ch, unsub := audit.Subscribe(8)
 	defer unsub()
 
-	sub := NewEgressSubscriber(ServerTarget{Name: "srv", URL: ts.URL, Token: "tok"}, audit, discardLogger())
+	sub := NewEgressSubscriber(ServerTarget{Name: "srv", URL: ts.URL, Token: "tok"}, nil, audit, discardLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sub.Run(ctx)
@@ -82,6 +83,65 @@ func TestEgressSubscriber_Stream(t *testing.T) {
 		}
 	case <-time.After(4 * time.Second):
 		t.Fatal("no egress audit entry received over the stream")
+	}
+}
+
+// fakeTokenSource is a tokenSource returning a fixed token and counting Invalidate.
+type fakeTokenSource struct {
+	token       string
+	err         error
+	invalidated int
+}
+
+func (f *fakeTokenSource) Token() (string, error) { return f.token, f.err }
+func (f *fakeTokenSource) Invalidate()            { f.invalidated++ }
+
+func TestEgressSubscriber_SendsControlToken(t *testing.T) {
+	var gotAuth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK) // empty body → stream returns promptly
+	}))
+	defer ts.Close()
+
+	audit := NewAuditLogger(LogConfig{Enabled: false}, discardLogger())
+	sub := NewEgressSubscriber(
+		ServerTarget{Name: "srv", URL: ts.URL, Token: "creds-tok"},
+		&fakeTokenSource{token: "ctl-tok"}, audit, discardLogger())
+	_ = sub.stream(context.Background())
+
+	if gotAuth != "Bearer ctl-tok" {
+		t.Errorf("Authorization = %q, want the control token (not the credentials token)", gotAuth)
+	}
+}
+
+func TestEgressSubscriber_401Invalidates(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	audit := NewAuditLogger(LogConfig{Enabled: false}, discardLogger())
+	fake := &fakeTokenSource{token: "ctl-tok"}
+	sub := NewEgressSubscriber(ServerTarget{Name: "srv", URL: ts.URL}, fake, audit, discardLogger())
+	if err := sub.stream(context.Background()); err == nil {
+		t.Fatal("expected an error on 401")
+	}
+	if fake.invalidated != 1 {
+		t.Errorf("Invalidate called %d times, want 1 (so the next reconnect re-mints)", fake.invalidated)
+	}
+}
+
+func TestEgressSubscriber_DisabledReturnsUnavailable(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotImplemented) // egress disabled on the server
+	}))
+	defer ts.Close()
+
+	audit := NewAuditLogger(LogConfig{Enabled: false}, discardLogger())
+	sub := NewEgressSubscriber(ServerTarget{Name: "srv", URL: ts.URL}, nil, audit, discardLogger())
+	if err := sub.stream(context.Background()); !errors.Is(err, errEgressUnavailable) {
+		t.Errorf("stream err = %v, want errEgressUnavailable", err)
 	}
 }
 

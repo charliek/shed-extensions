@@ -38,6 +38,18 @@ type egressDecision struct {
 	Reason     string    `json:"reason"`
 }
 
+// errEgressUnavailable means the stream returned 501/404 — egress control is
+// disabled on the server. Run backs off hard on it instead of tight-looping.
+var errEgressUnavailable = errors.New("egress stream: unavailable (disabled on server)")
+
+// tokenSource provides — and on a 401 invalidates — the control-scoped bearer
+// token for the egress stream on a secure server. *credentialSource satisfies
+// it; nil for an open server (which sends no minted token).
+type tokenSource interface {
+	Token() (string, error)
+	Invalidate()
+}
+
 // EgressSubscriber consumes a shed-server's egress-audit SSE stream and records
 // each decision into the AuditLogger (namespace "egress"), which fans it out to
 // shed-desktop. Read-only: it never gates or modifies egress.
@@ -45,45 +57,73 @@ type EgressSubscriber struct {
 	server     string
 	url        string
 	token      string
+	tokens     tokenSource // control-token source for a secure server; nil = open
 	httpClient *http.Client
 	audit      *AuditLogger
 	logger     *slog.Logger
 }
 
 // NewEgressSubscriber builds a subscriber for one server target with its own
-// authenticated HTTP client (the SDK HostClient only streams the plugin bus):
-// a fingerprint-pinned transport for https, else a plain client.
-func NewEgressSubscriber(t ServerTarget, audit *AuditLogger, logger *slog.Logger) *EgressSubscriber {
+// authenticated HTTP client (the SDK HostClient only streams the plugin bus): a
+// fingerprint-pinned transport for https, else a plain client. tokens supplies
+// the control-scoped token for a secure server (the egress route is
+// control-scoped, unlike the credentials-scoped bus); pass nil for an open server.
+func NewEgressSubscriber(t ServerTarget, tokens tokenSource, audit *AuditLogger, logger *slog.Logger) *EgressSubscriber {
 	return &EgressSubscriber{
 		server:     t.Name,
 		url:        strings.TrimRight(t.URL, "/"),
 		token:      t.Token,
+		tokens:     tokens,
 		httpClient: egressHTTPClient(t.URL, t.TLSFingerprint),
 		audit:      audit,
 		logger:     logger,
 	}
 }
 
+// bearer returns the token to send: a control token for a secure server
+// (re-minted near expiry by the source), else the static configured token (open
+// servers send their usually-empty token). A mint error sends none — the request
+// then 401s and Run retries after Invalidate.
+func (s *EgressSubscriber) bearer() string {
+	if s.tokens == nil {
+		return s.token
+	}
+	tok, err := s.tokens.Token()
+	if err != nil {
+		s.logger.Debug("egress: control-token mint failed", "server", s.server, "error", err)
+		return ""
+	}
+	return tok
+}
+
 // Run streams egress decisions until ctx is cancelled, reconnecting with
-// exponential backoff (an offline server simply retries in the background).
+// exponential backoff (an offline server simply retries in the background). When
+// the server reports egress disabled (501/404) it backs off hard rather than
+// polling every 30s, while still re-checking whether egress gets enabled later.
 func (s *EgressSubscriber) Run(ctx context.Context) {
-	const base, max = time.Second, 30 * time.Second
+	const base, max, unavailable = time.Second, 30 * time.Second, 5 * time.Minute
 	backoff := base
 	for ctx.Err() == nil {
 		err := s.stream(ctx)
 		if ctx.Err() != nil {
 			return
 		}
-		if err != nil {
+		wait := backoff
+		if errors.Is(err, errEgressUnavailable) {
+			wait, backoff = unavailable, base
+			s.logger.Debug("egress disabled on server; backing off", "server", s.server, "backoff", wait)
+		} else if err != nil {
 			s.logger.Debug("egress stream ended; retrying", "error", err, "backoff", backoff)
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff):
+		case <-time.After(wait):
 		}
-		if backoff *= 2; backoff > max {
-			backoff = max
+		if !errors.Is(err, errEgressUnavailable) {
+			if backoff *= 2; backoff > max {
+				backoff = max
+			}
 		}
 	}
 }
@@ -95,8 +135,8 @@ func (s *EgressSubscriber) stream(ctx context.Context) error {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	if s.token != "" {
-		req.Header.Set("Authorization", "Bearer "+s.token)
+	if tok := s.bearer(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -104,6 +144,12 @@ func (s *EgressSubscriber) stream(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized && s.tokens != nil {
+			s.tokens.Invalidate() // expired/revoked control token → re-mint on reconnect
+		}
+		if resp.StatusCode == http.StatusNotImplemented || resp.StatusCode == http.StatusNotFound {
+			return errEgressUnavailable
+		}
 		return fmt.Errorf("egress stream: unexpected status %d", resp.StatusCode)
 	}
 
