@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.4.5
+
+### Fixed
+
+- **The host-agent now mints a fresh control token on every `token.get` instead
+  of serving a cached one.** After a secure shed-server restarts (e.g. an upgrade
+  + `systemctl restart`), it invalidates every token it had issued, but the
+  host-agent kept vending its cached control token — so shed-desktop showed that
+  server as unreachable (`401` on the gated `/api/sheds`) until the host-agent
+  itself was restarted. shed-desktop already invalidates and retries once on a
+  `401`, but the retry got the same stale token back. The control-token path now
+  forces a fresh mint (`forceTokenWithExpiry`), so the desktop's existing retry
+  recovers on its own; the agent's control-token cache was redundant with the
+  desktop's own per-TTL cache, so this adds no steady-state SSH load. Concurrent
+  asks still single-flight-coalesce, and the fail-closed host-key-pin-mismatch
+  guard is preserved
+  ([#41](https://github.com/charliek/shed-extensions/pull/41)).
+
 ## v0.4.4
 
 ### Fixed
