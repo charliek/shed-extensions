@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.4.4
+
+### Fixed
+
+- **The egress-audit subscriber now authenticates with a control-scoped token
+  under secure mode.** It previously sent `ServerTarget.Token` (credentials
+  scope, often empty) to the control-scoped `/api/egress/stream`, so a secure
+  (`https`) server rejected it with a `401` on every reconnect (~every 30s). It
+  now mints a `control`-scoped token per secure server (an open server still
+  sends none), invalidates + re-mints on a `401`, and treats `501`/`404` (egress
+  disabled) as a long, quiet backoff instead of a tight poll
+  ([#40](https://github.com/charliek/shed-extensions/pull/40)).
+
 ## v0.4.3
 
 ### Fixed
