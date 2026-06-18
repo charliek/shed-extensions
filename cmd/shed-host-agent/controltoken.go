@@ -31,14 +31,24 @@ func newControlTokenProvider(ctx context.Context, m minter, sourcePath string) *
 }
 
 // Token returns a control-scoped token (and its expiry) for the named server,
-// minting over SSH and caching/refreshing per server. It errors when the server
-// is unknown or has no SSH endpoint to mint over.
+// minting over SSH. It errors when the server is unknown, has no SSH endpoint,
+// or is not secure (open servers are rejected here, before any mint).
+//
+// It always mints a FRESH token rather than serving this source's cache. The
+// desktop asks only when it needs one (it caches per token TTL and re-requests
+// at-most-once on a 401), and a token cached here can have been silently
+// invalidated by the target server restarting — which regenerates its token
+// authority — with no signal to the agent. Serving the cached copy is what
+// wedged a restarted server at 401 in the desktop until the agent was restarted;
+// forcing a fresh mint lets the desktop's existing 401 retry recover on its own.
+// (forceTokenWithExpiry still single-flight-coalesces concurrent asks; see its
+// doc for the one narrow, self-healing race.)
 func (p *controlTokenProvider) Token(serverName string) (string, time.Time, error) {
 	target, err := p.resolve(serverName)
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	return p.sourceFor(serverName, target).tokenWithExpiry()
+	return p.sourceFor(serverName, target).forceTokenWithExpiry()
 }
 
 // resolve looks the server up by name in the shed CLI config and returns its
