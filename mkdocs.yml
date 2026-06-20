@@ -94,6 +94,7 @@ nav:
       - SSH Agent: reference/ssh-agent.md
       - AWS Credentials: reference/aws-credentials.md
       - Docker Credentials: reference/docker-credentials.md
+      - RC Session Helper: reference/rc-helper.md
       - Status CLI: reference/status-cli.md
       - Configuration: reference/configuration.md
       - shed-desktop Approval: reference/desktop-approval.md

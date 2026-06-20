@@ -2,7 +2,7 @@
 #
 # Produces a scratch-based image containing only:
 #   /usr/local/bin/shed-ext-ssh-agent, /usr/local/bin/shed-ext-aws-credentials,
-#   /usr/local/bin/docker-credential-shed
+#   /usr/local/bin/docker-credential-shed, /usr/local/bin/shed-ext-rc
 #   /etc/systemd/system/shed-ext-{ssh-agent,aws-credentials}.service
 #   /etc/shed-extensions.d/*.yaml (extension manifests)
 #   /etc/environment.d/shed-extensions.conf
@@ -52,7 +52,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
         -X github.com/charliek/shed-extensions/internal/version.Version=${VERSION} \
         -X github.com/charliek/shed-extensions/internal/version.GitCommit=${GIT_COMMIT} \
         -X github.com/charliek/shed-extensions/internal/version.BuildDate=${BUILD_DATE}" \
-      -o /out/docker-credential-shed ./cmd/docker-credential-shed
+      -o /out/docker-credential-shed ./cmd/docker-credential-shed && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -ldflags "-s -w \
+        -X github.com/charliek/shed-extensions/internal/version.Version=${VERSION} \
+        -X github.com/charliek/shed-extensions/internal/version.GitCommit=${GIT_COMMIT} \
+        -X github.com/charliek/shed-extensions/internal/version.BuildDate=${BUILD_DATE}" \
+      -o /out/shed-ext-rc ./cmd/shed-ext-rc
 
 FROM scratch
 
