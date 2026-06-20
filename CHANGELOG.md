@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.6
+
+### Added
+
+- **`shed-ext-rc` guest binary** — the canonical guest-side implementation of the
+  RC Session Convention v2. It runs inside a shed and is invoked over SSH by
+  orchestrators (shed-remote-agent, shed-desktop, the `shed` CLI) to
+  create/list/probe/prompt/kill remote-control tmux sessions (`rc-<slug>`),
+  replacing the bespoke SSH+tmux logic each tool reimplemented — so every tool
+  produces byte-compatible, interoperable sessions. It owns bootstrap, pane
+  classification, the `SHED_RC_*` metadata (writes `SHED_RC_V=2`, kinds
+  `claude-rc`/`claude-broker`/`shell`), native-Go workspace-trust pre-seeding
+  (flock + merge-not-clobber + atomic write), and prompt delivery; it prints a
+  neutral JSON DTO each tool adapts. Shipped at `/usr/local/bin/shed-ext-rc` in
+  the guest image; documented at `docs/reference/rc-helper.md`
+  ([#42](https://github.com/charliek/shed-extensions/pull/42)).
+
 ## v0.4.5
 
 ### Fixed
