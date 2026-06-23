@@ -22,7 +22,7 @@ interactive terminal **attach** is *not* routed through it (it stays a direct
 
 | Command | Behaviour |
 |---------|-----------|
-| `create --kind <k> --name <display> [--slug s] [--workdir d] [--created-by t/v] [--target label] [--wait] [--interactive-shell] [--prompt-stdin]` | Resolve the workdir (`$SHED_WORKSPACE` default), pre-seed claude trust for `claude-*` kinds, and `tmux new-session` with the `SHED_RC_*` env. Non-blocking by default. With `--wait`, poll to `ready`, auto-accept trust, and deliver a prompt. Prints the [session DTO](#json-output). |
+| `create --kind <k> --name <display> [--slug s] [--workdir d] [--created-by t/v] [--target label] [--wait] [--interactive-shell] [--prompt-stdin] [--permission-mode <m> \| --skip]` | Resolve the workdir (`$SHED_WORKSPACE` default), pre-seed claude trust + onboarding for `claude-*` kinds, and `tmux new-session` with the `SHED_RC_*` env. Non-blocking by default. With `--wait`, poll to `ready`, auto-accept trust (and the bypass-mode dialog for `--skip`), and deliver a prompt. `--permission-mode`/`--skip` set the autonomy posture (claude kinds only) — see [Permission modes](#permission-modes). Prints the [session DTO](#json-output). |
 | `list` | Print `{"rc_sessions":[…]}` — every `rc-*` session's DTO. |
 | `probe --slug <s>` | Print one session DTO (state + url). Read-only. |
 | `accept-trust --slug <s>` | Re-capture the pane; if claude's workspace-trust dialog is showing, send `Enter`. |
@@ -34,9 +34,29 @@ interactive terminal **attach** is *not* routed through it (it stays a direct
 
 | Kind | Inner command |
 |------|---------------|
-| `claude-rc` | `claude --name <display> /rc` (interactive REPL; the create-time default) |
-| `claude-broker` | `claude remote-control --name <display> --spawn same-dir` |
+| `claude-rc` | `claude --name <display> /rc` (interactive REPL; the create-time default). With `--permission-mode <m>`, uses `claude --remote-control --name <display> --permission-mode <m>` instead so the posture carries into the live session. |
+| `claude-broker` | `claude remote-control --name <display> [--permission-mode <m>] --spawn same-dir` |
 | `shell` | `bash -l` |
+
+### Permission modes
+
+For `claude-*` kinds only, `--permission-mode <mode>` sets claude's autonomy posture so a
+session can run unattended (no effect on `shell`). `--skip` is shorthand for
+`--permission-mode bypassPermissions`; the two are mutually exclusive. Omitting both keeps
+claude's own default and the original inner-command forms, so existing callers are
+unaffected.
+
+| Mode | Posture |
+|------|---------|
+| `default` | claude's default (prompts on most tool use) |
+| `acceptEdits` | auto-accept file edits; still gates other tools |
+| `plan` | read-only planning |
+| `auto` | autonomous with background safety checks |
+| `dontAsk` | only tools allowed by config rules; deny the rest |
+| `bypassPermissions` | no permission gates (full bypass) |
+
+With `--wait` and `bypassPermissions`/`--skip`, the poller auto-accepts claude's one-time
+"Bypass Permissions mode" acceptance dialog so the session proceeds unattended.
 
 ### Prompts (stdin)
 
@@ -48,6 +68,8 @@ prompt (its input is the remote URL).
 ```bash
 echo -n 'fix the failing tests' | shed-ext-rc create --kind claude-rc --name demo --wait --prompt-stdin
 echo -n 'npm test'              | shed-ext-rc prompt --slug abc123
+# autonomous: run the kickoff prompt without permission prompts
+echo -n 'run the plan in PLAN.md' | shed-ext-rc create --kind claude-rc --name demo --wait --prompt-stdin --skip
 ```
 
 ## JSON output
@@ -92,10 +114,18 @@ The binary reports domain outcomes it observes locally; SSH-transport classifica
 | `4` | session not found (`probe`/`prompt`; `kill` stays idempotent → `0`) |
 | `1` | generic failure |
 
-## Workspace trust
+## Workspace trust and onboarding
 
-For `claude-*` kinds, `create` pre-seeds `projects["<workdir>"].hasTrustDialogAccepted`
-in `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` (merge — never clobber; atomic write; file
-lock across concurrent creates), so a fresh session reaches `ready` unattended. The
-`accept-trust` send-keys path is the fallback. See the convention spec for the full
-rules.
+For `claude-*` kinds, `create` pre-seeds `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` so a
+fresh shed reaches `ready` unattended without the workspace-trust or first-run dialogs:
+
+- `projects["<workdir>"].hasTrustDialogAccepted` — marks the workspace trusted
+- `hasCompletedOnboarding` — clears the first-run onboarding gate (theme picker)
+- `theme` — set to a default only when absent (never clobbered)
+
+Writes use merge-never-clobber semantics (unknown OAuth/MCP keys preserved), an atomic
+write, and a file lock across concurrent creates. The `accept-trust` send-keys path is the
+fallback for the trust dialog; for `bypassPermissions`/`--skip` sessions the `--wait`
+poller also auto-accepts the one-time "Bypass Permissions mode" dialog. `create` does
+**not** log claude in — authentication is provisioned separately. See the convention spec
+for the full rules.
