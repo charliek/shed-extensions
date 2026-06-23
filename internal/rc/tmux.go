@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Result is the outcome of one tmux invocation.
@@ -109,17 +110,35 @@ func killSession(r Runner, name string) Result {
 	return r.Run("kill-session", "-t", name)
 }
 
+// sendLineSettle is the pause between typing a line and submitting it. A freshly
+// ready remote-control REPL can still be ingesting the literal paste, and an Enter
+// that arrives mid-ingest is dropped — leaving the line typed but unsubmitted. A var
+// so tests can zero it.
+var sendLineSettle = 750 * time.Millisecond
+
 // sendLine types text literally into a session, then submits with Enter. The `--`
 // stops tmux option parsing so a line beginning with `-` is sent as text, not a flag.
+// A short settle between the paste and Enter avoids the Enter being dropped.
 func sendLine(r Runner, name, text string) Result {
 	res := r.Run("send-keys", "-t", name, "-l", "--", text)
 	if res.Code != 0 {
 		return res
 	}
+	time.Sleep(sendLineSettle)
 	return r.Run("send-keys", "-t", name, "Enter")
 }
 
 // sendEnter presses Enter (used to accept the pre-selected "Yes, I trust this folder").
 func sendEnter(r Runner, name string) Result {
+	return r.Run("send-keys", "-t", name, "Enter")
+}
+
+// acceptBypassPrompt accepts claude's "Bypass Permissions mode" dialog by selecting
+// "2. Yes, I accept": option "1. No, exit" is pre-selected, so move down once, then
+// Enter. A failed Down short-circuits (don't Enter on "No, exit").
+func acceptBypassPrompt(r Runner, name string) Result {
+	if res := r.Run("send-keys", "-t", name, "Down"); res.Code != 0 {
+		return res
+	}
 	return r.Run("send-keys", "-t", name, "Enter")
 }

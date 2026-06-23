@@ -70,6 +70,7 @@ func usage() {
 commands:
   create   --kind <k> --name <display> [--slug s] [--workdir d] [--created-by t/v]
            [--target label] [--wait] [--interactive-shell] [--prompt-stdin]
+           [--permission-mode <m> | --skip]
   list
   probe    --slug <s>
   accept-trust --slug <s>
@@ -135,9 +136,19 @@ func doCreate(r rc.Runner, args []string) int {
 		wait        = fs.Bool("wait", false, "block until ready, accept trust, deliver prompt")
 		interactive = fs.Bool("interactive-shell", false, "wrap claude kinds in `bash -ic`")
 		promptStdin = fs.Bool("prompt-stdin", false, "read a kickoff prompt line from stdin")
+		permMode    = fs.String("permission-mode", "", "claude --permission-mode (claude kinds): default|acceptEdits|plan|auto|dontAsk|bypassPermissions")
+		skip        = fs.Bool("skip", false, "shorthand for --permission-mode bypassPermissions")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	mode := *permMode
+	if *skip {
+		if mode != "" {
+			return fail(fmt.Errorf("%w: --skip and --permission-mode are mutually exclusive", rc.ErrBadArgs))
+		}
+		mode = rc.PermissionModeBypass
 	}
 
 	prompt := ""
@@ -162,6 +173,7 @@ func doCreate(r rc.Runner, args []string) int {
 		Prompt:           prompt,
 		Wait:             *wait,
 		InteractiveShell: *interactive,
+		PermissionMode:   mode,
 	}, nil)
 	if err != nil {
 		return fail(err)

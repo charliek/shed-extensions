@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// Tests drive a fake tmux, so the real inter-key settle would only slow them down.
+func init() { sendLineSettle = 0 }
+
 // fakeTmux is an injectable Runner that records calls and answers via a handler.
 type fakeTmux struct {
 	calls   [][]string
@@ -67,19 +70,57 @@ func TestInnerCommand(t *testing.T) {
 	cases := []struct {
 		kind        Kind
 		name        string
+		permMode    string
 		interactive bool
 		want        string
 	}{
-		{KindClaudeBroker, "my-shed/abc", false, "claude remote-control --name 'my-shed/abc' --spawn same-dir"},
-		{KindClaudeRC, "my-shed/abc", false, "claude --name 'my-shed/abc' /rc"},
-		{KindShell, "my-shed/abc", false, "bash -l"},
-		{KindClaudeRC, "Friday Bug Fix", false, "claude --name 'Friday Bug Fix' /rc"},
-		{KindClaudeRC, "x", true, `bash -ic 'claude --name '\''x'\'' /rc'`},
-		{KindShell, "x", true, "bash -l"}, // shell ignores interactive wrap
+		// No permission mode -> original, backward-compatible forms.
+		{KindClaudeBroker, "my-shed/abc", "", false, "claude remote-control --name 'my-shed/abc' --spawn same-dir"},
+		{KindClaudeRC, "my-shed/abc", "", false, "claude --name 'my-shed/abc' /rc"},
+		{KindShell, "my-shed/abc", "", false, "bash -l"},
+		{KindClaudeRC, "Friday Bug Fix", "", false, "claude --name 'Friday Bug Fix' /rc"},
+		{KindClaudeRC, "x", "", true, `bash -ic 'claude --name '\''x'\'' /rc'`},
+		{KindShell, "x", "", true, "bash -l"}, // shell ignores interactive wrap
+		// With a permission mode -> claude-rc switches to the --remote-control form.
+		{KindClaudeRC, "my-shed/abc", "auto", false, "claude --remote-control --name 'my-shed/abc' --permission-mode auto"},
+		{KindClaudeRC, "x", "bypassPermissions", false, "claude --remote-control --name 'x' --permission-mode bypassPermissions"},
+		{KindClaudeBroker, "b", "auto", false, "claude remote-control --name 'b' --permission-mode auto --spawn same-dir"},
+		{KindClaudeRC, "x", "auto", true, `bash -ic 'claude --remote-control --name '\''x'\'' --permission-mode auto'`},
+		{KindShell, "x", "bypassPermissions", false, "bash -l"}, // shell ignores mode
 	}
 	for _, c := range cases {
-		if got := InnerCommand(c.kind, c.name, c.interactive); got != c.want {
-			t.Errorf("InnerCommand(%s,%q,%v) = %q, want %q", c.kind, c.name, c.interactive, got, c.want)
+		if got := InnerCommand(c.kind, c.name, c.permMode, c.interactive); got != c.want {
+			t.Errorf("InnerCommand(%s,%q,%q,%v) = %q, want %q", c.kind, c.name, c.permMode, c.interactive, got, c.want)
+		}
+	}
+}
+
+func TestValidPermissionMode(t *testing.T) {
+	for _, m := range []string{"default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"} {
+		if !ValidPermissionMode(m) {
+			t.Errorf("ValidPermissionMode(%q) = false, want true", m)
+		}
+	}
+	for _, m := range []string{"", "yolo", "Auto", "bypass", "skip"} {
+		if ValidPermissionMode(m) {
+			t.Errorf("ValidPermissionMode(%q) = true, want false", m)
+		}
+	}
+}
+
+func TestIsBypassAcceptPrompt(t *testing.T) {
+	yes := "WARNING: Claude Code running in Bypass Permissions mode\n  1. No, exit\n  2. Yes, I accept\n"
+	if !IsBypassAcceptPrompt(yes) {
+		t.Error("want bypass-accept prompt detected")
+	}
+	for _, pane := range []string{
+		"",
+		"Workspace not trusted",
+		"Bypass Permissions mode", // warning without the accept option
+		"2. Yes, I accept",        // accept option without the bypass warning
+	} {
+		if IsBypassAcceptPrompt(pane) {
+			t.Errorf("false positive on %q", pane)
 		}
 	}
 }
@@ -265,6 +306,44 @@ func TestCreateControlCharPromptRejected(t *testing.T) {
 	if !errors.Is(err, ErrBadArgs) {
 		t.Fatalf("want ErrBadArgs, got %v", err)
 	}
+}
+
+func TestCreatePermissionModeValidation(t *testing.T) {
+	t.Run("invalid mode rejected", func(t *testing.T) {
+		f := &fakeTmux{}
+		_, err := Create(f, func(string) string { return "/home/shed" },
+			CreateOptions{Kind: KindClaudeRC, PermissionMode: "yolo"}, noSleep)
+		if !errors.Is(err, ErrBadArgs) {
+			t.Fatalf("want ErrBadArgs, got %v", err)
+		}
+		if len(f.calls) != 0 {
+			t.Fatal("should not have touched tmux on a validation failure")
+		}
+	})
+	t.Run("mode on shell kind rejected", func(t *testing.T) {
+		_, err := Create(&fakeTmux{}, func(string) string { return "/home/shed" },
+			CreateOptions{Kind: KindShell, PermissionMode: "auto"}, noSleep)
+		if !errors.Is(err, ErrBadArgs) {
+			t.Fatalf("want ErrBadArgs, got %v", err)
+		}
+	})
+	t.Run("valid mode flows into the inner command", func(t *testing.T) {
+		f := &fakeTmux{}
+		if _, err := Create(f, func(string) string { return "/home/shed" },
+			CreateOptions{Kind: KindClaudeRC, Slug: "abc123", PermissionMode: "auto"}, noSleep); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		var newSession []string
+		for _, c := range f.calls {
+			if len(c) > 0 && c[0] == "new-session" {
+				newSession = c
+			}
+		}
+		inner := newSession[len(newSession)-1]
+		if !strings.Contains(inner, "--remote-control") || !strings.Contains(inner, "--permission-mode auto") {
+			t.Fatalf("inner command missing permission posture: %q", inner)
+		}
+	})
 }
 
 func TestKillIdempotent(t *testing.T) {

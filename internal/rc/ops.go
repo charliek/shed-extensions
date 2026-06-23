@@ -24,6 +24,9 @@ var (
 const (
 	defaultWaitTimeout = 20 * time.Second
 	defaultPollEvery   = 750 * time.Millisecond
+	// promptDeliverSettle lets a just-ready REPL finish wiring up its input before
+	// the kickoff line is typed (driven through the injected sleep, so tests skip it).
+	promptDeliverSettle = 1 * time.Second
 )
 
 // Getenv reads an environment variable (injected for testing).
@@ -40,6 +43,10 @@ type CreateOptions struct {
 	Prompt           string // optional kickoff line (implies Wait)
 	Wait             bool   // block until ready, accept trust, deliver prompt
 	InteractiveShell bool   // wrap claude kinds in `bash -ic` (native machines)
+	// PermissionMode sets claude's --permission-mode for claude kinds ("" = omit,
+	// claude's own default). e.g. "auto" or "bypassPermissions" for an unattended
+	// run; with bypassPermissions, Wait also auto-accepts the one-time bypass dialog.
+	PermissionMode string
 }
 
 // Create bootstraps a managed RC session and returns its DTO. With Wait (or a
@@ -55,6 +62,14 @@ func Create(r Runner, env Getenv, opts CreateOptions, sleep func(time.Duration))
 		}
 		if HasControlChars(opts.Prompt) {
 			return Session{}, fmt.Errorf("%w: prompt must be a single line", ErrBadArgs)
+		}
+	}
+	if opts.PermissionMode != "" {
+		if !IsClaudeKind(opts.Kind) {
+			return Session{}, fmt.Errorf("%w: --permission-mode applies only to claude kinds", ErrBadArgs)
+		}
+		if !ValidPermissionMode(opts.PermissionMode) {
+			return Session{}, fmt.Errorf("%w: invalid permission mode %q", ErrBadArgs, opts.PermissionMode)
 		}
 	}
 
@@ -101,10 +116,10 @@ func Create(r Runner, env Getenv, opts CreateOptions, sleep func(time.Duration))
 	// Best-effort trust pre-seed for claude kinds (the accept-trust fallback covers
 	// any failure, so a preseed error never fails the create).
 	if IsClaudeKind(opts.Kind) {
-		_ = PreseedTrust(workdir, env)
+		_ = PreseedClaudeConfig(workdir, env)
 	}
 
-	inner := InnerCommand(opts.Kind, displayName, opts.InteractiveShell)
+	inner := InnerCommand(opts.Kind, displayName, opts.PermissionMode, opts.InteractiveShell)
 	res := createSession(r, name, workdir, envArgs, inner)
 	if res.Code != 0 {
 		if isDuplicateSession(res.Stderr) {
@@ -128,7 +143,8 @@ func Create(r Runner, env Getenv, opts CreateOptions, sleep func(time.Duration))
 	}
 
 	if opts.Wait || opts.Prompt != "" {
-		state, url := waitUntilReady(r, name, opts.Kind, opts.Prompt, sleep)
+		bypass := opts.PermissionMode == PermissionModeBypass
+		state, url := waitUntilReady(r, name, opts.Kind, opts.Prompt, bypass, sleep)
 		session.State, session.URL = state, url
 	}
 	return session, nil
@@ -136,13 +152,14 @@ func Create(r Runner, env Getenv, opts CreateOptions, sleep func(time.Duration))
 
 // waitUntilReady polls the pane until a terminal state (or timeout), auto-accepting
 // the trust prompt once, then delivers prompt if the session reached ready.
-func waitUntilReady(r Runner, name string, kind Kind, prompt string, sleep func(time.Duration)) (State, string) {
+func waitUntilReady(r Runner, name string, kind Kind, prompt string, bypass bool, sleep func(time.Duration)) (State, string) {
 	if sleep == nil {
 		sleep = time.Sleep
 	}
 	deadline := time.Now().Add(defaultWaitTimeout)
 	state, url := StateStarting, ""
 	trustAccepted := false
+	bypassAccepted := false
 	for time.Now().Before(deadline) {
 		capRes := capturePane(r, name)
 		if capRes.Code != 0 {
@@ -152,6 +169,18 @@ func waitUntilReady(r Runner, name string, kind Kind, prompt string, sleep func(
 				return StateDead, ""
 			}
 			sleep(defaultPollEvery) // transient capture error; keep polling
+			continue
+		}
+		// A bypassPermissions session shows a one-time acceptance dialog before
+		// anything else; accept it once so the session can proceed unattended. Gated
+		// on bypass so a look-alike screen never draws a stray keypress otherwise.
+		if bypass && IsClaudeKind(kind) && !bypassAccepted && IsBypassAcceptPrompt(capRes.Stdout) {
+			// Only latch accepted on a successful send; a transient send-keys failure
+			// must remain retryable rather than stalling the session until timeout.
+			if res := acceptBypassPrompt(r, name); res.Code == 0 {
+				bypassAccepted = true
+			}
+			sleep(defaultPollEvery)
 			continue
 		}
 		state, url = ClassifyPane(kind, capRes.Stdout)
@@ -169,6 +198,9 @@ func waitUntilReady(r Runner, name string, kind Kind, prompt string, sleep func(
 		sleep(defaultPollEvery)
 	}
 	if state == StateReady && prompt != "" {
+		// A session can report ready (URL present) a beat before its REPL accepts
+		// input; settle once more before typing the kickoff line.
+		sleep(promptDeliverSettle)
 		sendLine(r, name, prompt)
 	}
 	return state, url
