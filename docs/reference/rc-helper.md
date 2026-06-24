@@ -60,10 +60,17 @@ With `--wait` and `bypassPermissions`/`--skip`, the poller auto-accepts claude's
 
 ### Prompts (stdin)
 
-A kickoff line is passed via **stdin** (`create --prompt-stdin`, or `prompt`), never as
+A kickoff prompt is passed via **stdin** (`create --prompt-stdin`, or `prompt`), never as
 an argument — so a line beginning with `-` is delivered literally, not parsed as a flag.
 For `claude-rc` it is a prompt; for `shell` it is a command. `claude-broker` rejects a
 prompt (its input is the remote URL).
+
+The prompt **may be multi-line**: a single line is typed with `send-keys -l`, and a
+multi-line block is delivered as one input via a **bracketed paste** (`set-buffer` +
+`paste-buffer -p`) so embedded newlines don't submit early — then one `Enter` submits the
+whole thing. Newlines and tabs are allowed; other control characters (notably `ESC`) are
+rejected so a paste can't break out of the bracketed paste. (Prefer a short prompt + a
+plan file for large/multi-step work.)
 
 ```bash
 echo -n 'fix the failing tests' | shed-ext-rc create --kind claude-rc --name demo --wait --prompt-stdin
@@ -122,6 +129,10 @@ fresh shed reaches `ready` unattended without the workspace-trust or first-run d
 - `projects["<workdir>"].hasTrustDialogAccepted` — marks the workspace trusted
 - `hasCompletedOnboarding` — clears the first-run onboarding gate (theme picker)
 - `theme` — set to a default only when absent (never clobbered)
+
+It also suppresses first-run interstitials that could pop a modal over an unattended
+session: it raises `fullscreenUpsellSeenCount` past the fullscreen-renderer upsell
+threshold (never lowering an existing value) and sets `hasSeenAutoModeEntryWarning`.
 
 Writes use merge-never-clobber semantics (unknown OAuth/MCP keys preserved), an atomic
 write, and a file lock across concurrent creates. The `accept-trust` send-keys path is the

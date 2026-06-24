@@ -136,9 +136,32 @@ var slugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 func ValidCallerSlug(slug string) bool { return slugRe.MatchString(slug) }
 
 // HasControlChars reports whether s contains a control character (incl. newline,
-// CR, tab). SHED_RC_* values and typed lines must be single-line.
+// CR, tab). SHED_RC_* values must be single-line.
 func HasControlChars(s string) bool {
 	for _, r := range s {
+		if r <= 0x1f || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeNewlines collapses CRLF and lone CR to LF, so a multi-line prompt pasted
+// from any platform is uniform before delivery.
+func NormalizeNewlines(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
+}
+
+// HasUnsafePromptChars reports a control char that must not appear in a kickoff
+// prompt. Newlines and tabs are allowed — a multi-line prompt is delivered via a
+// bracketed paste (see sendBlock) — but every other control char is rejected,
+// notably ESC, so a paste can't smuggle the bracketed-paste end sequence and break
+// out into raw keystrokes. Normalize with NormalizeNewlines first.
+func HasUnsafePromptChars(s string) bool {
+	for _, r := range s {
+		if r == '\n' || r == '\t' {
+			continue
+		}
 		if r <= 0x1f || r == 0x7f {
 			return true
 		}

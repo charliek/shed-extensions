@@ -15,10 +15,16 @@
 
 ### Changed
 
-- **First-run onboarding is pre-seeded alongside trust.** `PreseedClaudeConfig`
-  (formerly `PreseedTrust`) now also sets `hasCompletedOnboarding` (and a default
-  `theme` when absent) so a fresh shed's claude reaches the session instead of
-  blocking on the theme picker.
+- **First-run onboarding + interstitials are pre-seeded alongside trust.**
+  `PreseedClaudeConfig` (formerly `PreseedTrust`) now also sets
+  `hasCompletedOnboarding` (and a default `theme` when absent), raises
+  `fullscreenUpsellSeenCount` past the fullscreen-renderer upsell threshold, and sets
+  `hasSeenAutoModeEntryWarning` — so a fresh shed's claude reaches the session instead
+  of blocking on the theme picker or a first-run modal.
+- **Kickoff prompts may be multi-line.** A multi-line prompt (`create --prompt-stdin`
+  / `prompt`) is delivered as one input via a bracketed paste (`set-buffer` +
+  `paste-buffer -p`) instead of `send-keys -l`, so embedded newlines don't submit
+  early. Newlines/tabs are allowed; other control chars (notably `ESC`) are rejected.
 
 ### Fixed
 

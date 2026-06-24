@@ -60,8 +60,9 @@ func Create(r Runner, env Getenv, opts CreateOptions, sleep func(time.Duration))
 		if !AcceptsTypedInput(opts.Kind) {
 			return Session{}, fmt.Errorf("%w: kind %q does not accept a prompt", ErrBadArgs, opts.Kind)
 		}
-		if HasControlChars(opts.Prompt) {
-			return Session{}, fmt.Errorf("%w: prompt must be a single line", ErrBadArgs)
+		opts.Prompt = NormalizeNewlines(opts.Prompt)
+		if HasUnsafePromptChars(opts.Prompt) {
+			return Session{}, fmt.Errorf("%w: prompt contains an unsupported control character", ErrBadArgs)
 		}
 	}
 	if opts.PermissionMode != "" {
@@ -271,8 +272,9 @@ type PromptOptions struct {
 // Prompt delivers a single line to a ready session (re-captures and verifies kind +
 // state + optional session-id before sending).
 func Prompt(r Runner, opts PromptOptions) error {
-	if HasControlChars(opts.Text) {
-		return fmt.Errorf("%w: text must be a single line", ErrBadArgs)
+	opts.Text = NormalizeNewlines(opts.Text)
+	if HasUnsafePromptChars(opts.Text) {
+		return fmt.Errorf("%w: text contains an unsupported control character", ErrBadArgs)
 	}
 	session, err := loadSession(r, opts.Slug, nil)
 	if err != nil {

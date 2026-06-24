@@ -300,12 +300,72 @@ func TestCreatePromptOnBrokerRejected(t *testing.T) {
 	}
 }
 
-func TestCreateControlCharPromptRejected(t *testing.T) {
+func TestCreateUnsafePromptRejected(t *testing.T) {
+	// A newline is now allowed (multi-line prompt); an ESC (or other control char)
+	// is rejected so a paste can't break out of the bracketed paste.
 	_, err := Create(&fakeTmux{}, func(string) string { return "/home/shed" },
-		CreateOptions{Kind: KindClaudeRC, Prompt: "a\nb"}, noSleep)
+		CreateOptions{Kind: KindClaudeRC, Prompt: "a\x1bb"}, noSleep)
 	if !errors.Is(err, ErrBadArgs) {
 		t.Fatalf("want ErrBadArgs, got %v", err)
 	}
+}
+
+func TestPromptCharGuards(t *testing.T) {
+	t.Run("HasUnsafePromptChars allows newline/tab, rejects others", func(t *testing.T) {
+		for _, ok := range []string{"a\nb", "a\tb", "plain", "multi\nline\nplan"} {
+			if HasUnsafePromptChars(ok) {
+				t.Errorf("%q should be allowed", ok)
+			}
+		}
+		for _, bad := range []string{"a\x1bb", "a\x00b", "a\rb", "bell\x07"} {
+			if !HasUnsafePromptChars(bad) {
+				t.Errorf("%q should be rejected", bad)
+			}
+		}
+	})
+	t.Run("NormalizeNewlines collapses CR/CRLF", func(t *testing.T) {
+		if got := NormalizeNewlines("a\r\nb\rc"); got != "a\nb\nc" {
+			t.Errorf("got %q", got)
+		}
+	})
+}
+
+func TestSendLineMultilineUsesBracketedPaste(t *testing.T) {
+	t.Run("multi-line -> set-buffer + paste-buffer", func(t *testing.T) {
+		f := &fakeTmux{}
+		sendLine(f, "rc-x", "line one\nline two")
+		var verbs []string
+		for _, c := range f.calls {
+			if len(c) > 0 {
+				verbs = append(verbs, c[0])
+			}
+		}
+		joined := strings.Join(verbs, ",")
+		if !strings.Contains(joined, "set-buffer") || !strings.Contains(joined, "paste-buffer") {
+			t.Fatalf("multi-line should paste via buffer, got calls: %v", f.calls)
+		}
+		if strings.Contains(joined, "send-keys") && containsArg(f.calls, "-l") {
+			t.Fatalf("multi-line should not type with send-keys -l: %v", f.calls)
+		}
+	})
+	t.Run("single-line -> send-keys -l", func(t *testing.T) {
+		f := &fakeTmux{}
+		sendLine(f, "rc-x", "just one line")
+		if !containsArg(f.calls, "-l") {
+			t.Fatalf("single-line should use send-keys -l, got: %v", f.calls)
+		}
+	})
+}
+
+func containsArg(calls [][]string, arg string) bool {
+	for _, c := range calls {
+		for _, a := range c {
+			if a == arg {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestCreatePermissionModeValidation(t *testing.T) {

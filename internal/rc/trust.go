@@ -25,6 +25,21 @@ func claudeConfigPath(getenv func(string) string) string {
 	return filepath.Join(dir, ".claude.json")
 }
 
+// fullscreenUpsellFloor is a "seen count" high enough that claude stops showing the
+// fullscreen-renderer upsell dialog.
+const fullscreenUpsellFloor = 999
+
+// jsonNumberInt returns v as an int when it is a JSON number (config is decoded with
+// UseNumber so integers round-trip exactly); 0 otherwise.
+func jsonNumberInt(v any) int {
+	if n, ok := v.(json.Number); ok {
+		if i, err := n.Int64(); err == nil {
+			return int(i)
+		}
+	}
+	return 0
+}
+
 // PreseedClaudeConfig prepares claude's config so a fresh session reaches `ready`
 // unattended: it marks workdir trusted (no first-run workspace-trust prompt) and
 // clears the first-run onboarding gate (no theme picker). It does NOT log in —
@@ -107,6 +122,16 @@ func PreseedClaudeConfig(workdir string, getenv func(string) string) error {
 	config["hasCompletedOnboarding"] = true
 	if _, ok := config["theme"]; !ok {
 		config["theme"] = "dark"
+	}
+
+	// Suppress first-run interstitials that can pop a modal over an unattended
+	// session: the fullscreen-renderer upsell (a "seen count" — raise it past the
+	// threshold, never lower an existing value) and the auto-mode entry warning.
+	if jsonNumberInt(config["fullscreenUpsellSeenCount"]) < fullscreenUpsellFloor {
+		config["fullscreenUpsellSeenCount"] = fullscreenUpsellFloor
+	}
+	if _, ok := config["hasSeenAutoModeEntryWarning"]; !ok {
+		config["hasSeenAutoModeEntryWarning"] = true
 	}
 
 	out, err := json.MarshalIndent(config, "", "  ")

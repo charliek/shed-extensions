@@ -75,6 +75,35 @@ func TestPreseedClaudeConfigClearsOnboarding(t *testing.T) {
 	}
 }
 
+func TestPreseedClaudeConfigSuppressesInterstitials(t *testing.T) {
+	home := t.TempDir()
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	m := readConfig(t, filepath.Join(home, ".claude.json"))
+	if n, _ := m["fullscreenUpsellSeenCount"].(float64); int(n) < fullscreenUpsellFloor {
+		t.Fatalf("fullscreenUpsellSeenCount not raised: %v", m["fullscreenUpsellSeenCount"])
+	}
+	if m["hasSeenAutoModeEntryWarning"] != true {
+		t.Fatalf("hasSeenAutoModeEntryWarning not set: %v", m["hasSeenAutoModeEntryWarning"])
+	}
+}
+
+func TestPreseedClaudeConfigDoesNotLowerUpsellCount(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".claude.json")
+	data, _ := json.Marshal(map[string]any{"fullscreenUpsellSeenCount": 100000})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := readConfig(t, path)["fullscreenUpsellSeenCount"].(float64); int(got) != 100000 {
+		t.Fatalf("existing higher count was lowered to %v", got)
+	}
+}
+
 func TestPreseedClaudeConfigDoesNotClobberTheme(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude.json")
