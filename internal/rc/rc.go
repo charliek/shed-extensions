@@ -154,15 +154,17 @@ func NormalizeNewlines(s string) string {
 
 // HasUnsafePromptChars reports a control char that must not appear in a kickoff
 // prompt. Newlines and tabs are allowed — a multi-line prompt is delivered via a
-// bracketed paste (see sendBlock) — but every other control char is rejected,
-// notably ESC, so a paste can't smuggle the bracketed-paste end sequence and break
-// out into raw keystrokes. Normalize with NormalizeNewlines first.
+// bracketed paste (see sendBlock) — but every other control char is rejected: C0
+// (`<= 0x1f`, notably ESC, so a paste can't smuggle the bracketed-paste end sequence
+// and break out into raw keystrokes), DEL (`0x7f`), and C1 (`0x80`–`0x9f`, e.g. the
+// 8-bit CSI `0x9b`, which terminals that honor C1 would treat as a control sequence).
+// Normalize with NormalizeNewlines first.
 func HasUnsafePromptChars(s string) bool {
 	for _, r := range s {
 		if r == '\n' || r == '\t' {
 			continue
 		}
-		if r <= 0x1f || r == 0x7f {
+		if r <= 0x1f || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
 			return true
 		}
 	}

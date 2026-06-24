@@ -317,7 +317,7 @@ func TestPromptCharGuards(t *testing.T) {
 				t.Errorf("%q should be allowed", ok)
 			}
 		}
-		for _, bad := range []string{"a\x1bb", "a\x00b", "a\rb", "bell\x07"} {
+		for _, bad := range []string{"a\x1bb", "a\x00b", "a\rb", "bell\x07", "a\u009bb", "c\u0080"} {
 			if !HasUnsafePromptChars(bad) {
 				t.Errorf("%q should be rejected", bad)
 			}
