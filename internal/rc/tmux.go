@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Result is the outcome of one tmux invocation.
@@ -109,17 +110,55 @@ func killSession(r Runner, name string) Result {
 	return r.Run("kill-session", "-t", name)
 }
 
-// sendLine types text literally into a session, then submits with Enter. The `--`
-// stops tmux option parsing so a line beginning with `-` is sent as text, not a flag.
+// sendLineSettle is the pause between typing a line and submitting it. A freshly
+// ready remote-control REPL can still be ingesting the literal paste, and an Enter
+// that arrives mid-ingest is dropped — leaving the line typed but unsubmitted. A var
+// so tests can zero it.
+var sendLineSettle = 750 * time.Millisecond
+
+// sendLine delivers text into a session and submits it with Enter. A single line is
+// typed literally (`-l`; `--` stops option parsing so a leading `-` is text, not a
+// flag); a multi-line block is delivered via sendBlock so embedded newlines don't
+// submit early. A short settle before Enter avoids the Enter being dropped.
 func sendLine(r Runner, name, text string) Result {
+	if strings.Contains(text, "\n") {
+		return sendBlock(r, name, text)
+	}
 	res := r.Run("send-keys", "-t", name, "-l", "--", text)
 	if res.Code != 0 {
 		return res
 	}
+	time.Sleep(sendLineSettle)
+	return r.Run("send-keys", "-t", name, "Enter")
+}
+
+// sendBlock delivers a multi-line block as ONE input via a bracketed paste: load the
+// text into a dedicated tmux buffer, then `paste-buffer -p` so claude's TUI inserts
+// the whole block (embedded newlines stay as input, they don't submit), then settle
+// and press Enter to submit it as a single prompt. `-d` removes the temp buffer.
+func sendBlock(r Runner, name, text string) Result {
+	const buf = "shed-ext-rc-prompt"
+	if res := r.Run("set-buffer", "-b", buf, "--", text); res.Code != 0 {
+		return res
+	}
+	if res := r.Run("paste-buffer", "-p", "-d", "-b", buf, "-t", name); res.Code != 0 {
+		return res
+	}
+	time.Sleep(sendLineSettle)
 	return r.Run("send-keys", "-t", name, "Enter")
 }
 
 // sendEnter presses Enter (used to accept the pre-selected "Yes, I trust this folder").
 func sendEnter(r Runner, name string) Result {
+	return r.Run("send-keys", "-t", name, "Enter")
+}
+
+// acceptBypassPrompt accepts claude's "Bypass Permissions mode" dialog by selecting
+// "2. Yes, I accept": option "1. No, exit" is pre-selected, so move down once, then
+// Enter. A failed Down short-circuits (don't Enter on "No, exit").
+func acceptBypassPrompt(r Runner, name string) Result {
+	if res := r.Run("send-keys", "-t", name, "Down"); res.Code != 0 {
+		return res
+	}
 	return r.Run("send-keys", "-t", name, "Enter")
 }

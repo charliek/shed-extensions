@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`shed-ext-rc create --permission-mode <mode>` / `--skip`** — set claude's
+  permission posture for an autonomous remote-control session (`--skip` is the
+  shorthand for `bypassPermissions`). For `claude-rc` with a mode, the inner command
+  uses the `claude --remote-control --name <n> --permission-mode <m>` form (the bare
+  `/rc` slash takes no flags); the broker appends the flag. Additive and backward
+  compatible — with no mode, the original command forms are unchanged, so existing
+  callers (shed-desktop, shed-remote-agent) are unaffected. The create poller
+  auto-accepts claude's one-time "Bypass Permissions mode" dialog for `--skip`.
+
+### Changed
+
+- **First-run onboarding + interstitials are pre-seeded alongside trust.**
+  `PreseedClaudeConfig` (formerly `PreseedTrust`) now also sets
+  `hasCompletedOnboarding` (and a default `theme` when absent), raises
+  `fullscreenUpsellSeenCount` past the fullscreen-renderer upsell threshold, and sets
+  `hasSeenAutoModeEntryWarning` — so a fresh shed's claude reaches the session instead
+  of blocking on the theme picker or a first-run modal.
+- **Kickoff prompts may be multi-line.** A multi-line prompt (`create --prompt-stdin`
+  / `prompt`) is delivered as one input via a bracketed paste (`set-buffer` +
+  `paste-buffer -p`) instead of `send-keys -l`, so embedded newlines don't submit
+  early. Newlines/tabs are allowed; other control chars (notably `ESC`) are rejected.
+
+### Fixed
+
+- **Kickoff prompt could be typed but not submitted.** A just-ready remote-control
+  REPL can drop an `Enter` that arrives mid-paste; `sendLine` now settles briefly
+  between the literal text and `Enter`, with an additional settle before delivery.
+
 ## v0.4.6
 
 ### Added

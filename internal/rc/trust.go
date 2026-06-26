@@ -25,14 +25,31 @@ func claudeConfigPath(getenv func(string) string) string {
 	return filepath.Join(dir, ".claude.json")
 }
 
-// PreseedTrust marks workdir trusted in claude's config so a fresh session reaches
-// `ready` without the first-run workspace-trust prompt. Best-effort: it never fails
-// a create (the send-keys accept-trust fallback covers any failure), so it returns
-// an error only for optional diagnostics. Invariants (mirroring the sh/jq reference):
+// fullscreenUpsellFloor is a "seen count" high enough that claude stops showing the
+// fullscreen-renderer upsell dialog.
+const fullscreenUpsellFloor = 999
+
+// jsonNumberInt returns v as an int when it is a JSON number (config is decoded with
+// UseNumber so integers round-trip exactly); 0 otherwise.
+func jsonNumberInt(v any) int {
+	if n, ok := v.(json.Number); ok {
+		if i, err := n.Int64(); err == nil {
+			return int(i)
+		}
+	}
+	return 0
+}
+
+// PreseedClaudeConfig prepares claude's config so a fresh session reaches `ready`
+// unattended: it marks workdir trusted (no first-run workspace-trust prompt) and
+// clears the first-run onboarding gate (no theme picker). It does NOT log in —
+// authentication is provisioned separately. Best-effort: it never fails a create
+// (the send-keys accept-trust fallback covers any failure), so it returns an error
+// only for optional diagnostics. Invariants (mirroring the sh/jq reference):
 // merge — never clobber (unknown OAuth/MCP keys preserved); a malformed existing file
 // is left untouched; atomic write (temp in the same dir, then rename); a file lock
 // serializes concurrent creates; the existing file mode is preserved (0600 on create).
-func PreseedTrust(workdir string, getenv func(string) string) error {
+func PreseedClaudeConfig(workdir string, getenv func(string) string) error {
 	path := claudeConfigPath(getenv)
 	if path == "" {
 		return errors.New("no CLAUDE_CONFIG_DIR or HOME; skipping trust preseed")
@@ -98,6 +115,24 @@ func PreseedTrust(workdir string, getenv func(string) string) error {
 	proj["hasTrustDialogAccepted"] = true
 	projects[workdir] = proj
 	config["projects"] = projects
+
+	// Clear the first-run onboarding gate so a fresh shed's claude reaches the
+	// session instead of blocking on the theme picker. hasCompletedOnboarding is set
+	// idempotently; theme only when absent (never clobber a user's choice).
+	config["hasCompletedOnboarding"] = true
+	if _, ok := config["theme"]; !ok {
+		config["theme"] = "dark"
+	}
+
+	// Suppress first-run interstitials that can pop a modal over an unattended
+	// session: the fullscreen-renderer upsell (a "seen count" — raise it past the
+	// threshold, never lower an existing value) and the auto-mode entry warning.
+	if jsonNumberInt(config["fullscreenUpsellSeenCount"]) < fullscreenUpsellFloor {
+		config["fullscreenUpsellSeenCount"] = fullscreenUpsellFloor
+	}
+	if _, ok := config["hasSeenAutoModeEntryWarning"]; !ok {
+		config["hasSeenAutoModeEntryWarning"] = true
+	}
 
 	out, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

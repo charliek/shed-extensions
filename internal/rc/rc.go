@@ -136,10 +136,35 @@ var slugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 func ValidCallerSlug(slug string) bool { return slugRe.MatchString(slug) }
 
 // HasControlChars reports whether s contains a control character (incl. newline,
-// CR, tab). SHED_RC_* values and typed lines must be single-line.
+// CR, tab). SHED_RC_* values must be single-line.
 func HasControlChars(s string) bool {
 	for _, r := range s {
 		if r <= 0x1f || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeNewlines collapses CRLF and lone CR to LF, so a multi-line prompt pasted
+// from any platform is uniform before delivery.
+func NormalizeNewlines(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
+}
+
+// HasUnsafePromptChars reports a control char that must not appear in a kickoff
+// prompt. Newlines and tabs are allowed — a multi-line prompt is delivered via a
+// bracketed paste (see sendBlock) — but every other control char is rejected: C0
+// (`<= 0x1f`, notably ESC, so a paste can't smuggle the bracketed-paste end sequence
+// and break out into raw keystrokes), DEL (`0x7f`), and C1 (`0x80`–`0x9f`, e.g. the
+// 8-bit CSI `0x9b`, which terminals that honor C1 would treat as a control sequence).
+// Normalize with NormalizeNewlines first.
+func HasUnsafePromptChars(s string) bool {
+	for _, r := range s {
+		if r == '\n' || r == '\t' {
+			continue
+		}
+		if r <= 0x1f || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
 			return true
 		}
 	}
@@ -152,16 +177,53 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// validPermissionModes is claude's `--permission-mode` value set. An empty mode
+// means "don't pass the flag" (claude's own default — preserves the pre-flag
+// behavior for callers that don't request a posture).
+var validPermissionModes = map[string]bool{
+	"default":           true,
+	"acceptEdits":       true,
+	"plan":              true,
+	"auto":              true,
+	"dontAsk":           true,
+	"bypassPermissions": true,
+}
+
+// PermissionModeBypass is claude's full-bypass mode (the `--skip` shorthand). Its
+// session shows a one-time acceptance dialog that the create poller auto-confirms.
+const PermissionModeBypass = "bypassPermissions"
+
+// ValidPermissionMode reports whether m is a claude `--permission-mode` value.
+func ValidPermissionMode(m string) bool { return validPermissionModes[m] }
+
 // InnerCommand builds the command the tmux session runs for a kind. interactiveShell
 // wraps the claude kinds in `bash -ic` so a login rc-file loads PATH (nvm/asdf)
 // before claude is exec'd (native machines); sheds bake claude into the system path.
-func InnerCommand(kind Kind, displayName string, interactiveShell bool) string {
+//
+// permissionMode (claude kinds only; "" = omit) sets claude's `--permission-mode`
+// so a remote-control session can run unattended (e.g. "auto" or
+// "bypassPermissions"). For claude-rc the mode is delivered via the
+// `--remote-control` flag form rather than the bare `/rc` slash command — the slash
+// form takes no flags, while `--remote-control --permission-mode <m>` is the
+// verified form that carries the posture into the live session and still yields a
+// `session_*` URL (so the pane classifier treats it identically). With no mode,
+// claude-rc keeps the original `/rc` form for backward compatibility.
+func InnerCommand(kind Kind, displayName, permissionMode string, interactiveShell bool) string {
 	var cmd string
 	switch kind {
 	case KindClaudeBroker:
-		cmd = "claude remote-control --name " + shellQuote(displayName) + " --spawn same-dir"
+		cmd = "claude remote-control --name " + shellQuote(displayName)
+		if permissionMode != "" {
+			cmd += " --permission-mode " + permissionMode
+		}
+		cmd += " --spawn same-dir"
 	case KindClaudeRC:
-		cmd = "claude --name " + shellQuote(displayName) + " /rc"
+		if permissionMode != "" {
+			cmd = "claude --remote-control --name " + shellQuote(displayName) +
+				" --permission-mode " + permissionMode
+		} else {
+			cmd = "claude --name " + shellQuote(displayName) + " /rc"
+		}
 	case KindShell:
 		return "bash -l"
 	default:
@@ -203,6 +265,19 @@ func extractURL(kind Kind, pane string) string {
 func IsTrustPrompt(pane string) bool {
 	return notTrustedRe.MatchString(pane) || safetyCheckRe.MatchString(pane) ||
 		trustFolderRe.MatchString(pane)
+}
+
+var (
+	bypassWarnRe   = regexp.MustCompile(`(?i)Bypass Permissions mode`)
+	bypassAcceptRe = regexp.MustCompile(`(?i)Yes,\s*I accept`)
+)
+
+// IsBypassAcceptPrompt reports whether the pane is showing claude's one-time
+// "Bypass Permissions mode" acceptance dialog (shown when a session starts under
+// --permission-mode bypassPermissions). Option "1. No, exit" is pre-selected, so a
+// creator must move to "2. Yes, I accept" before Enter (see acceptBypassPrompt).
+func IsBypassAcceptPrompt(pane string) bool {
+	return bypassWarnRe.MatchString(pane) && bypassAcceptRe.MatchString(pane)
 }
 
 // ClassifyPane derives (state, url) from a captured pane for a kind. Mirrors

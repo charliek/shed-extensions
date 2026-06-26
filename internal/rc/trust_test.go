@@ -50,9 +50,9 @@ func TestClaudeConfigPath(t *testing.T) {
 	}
 }
 
-func TestPreseedTrustCreatesFile(t *testing.T) {
+func TestPreseedClaudeConfigCreatesFile(t *testing.T) {
 	home := t.TempDir()
-	if err := PreseedTrust("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
 		t.Fatal(err)
 	}
 	m := readConfig(t, filepath.Join(home, ".claude.json"))
@@ -61,7 +61,69 @@ func TestPreseedTrustCreatesFile(t *testing.T) {
 	}
 }
 
-func TestPreseedTrustPreservesUnrelatedKeys(t *testing.T) {
+func TestPreseedClaudeConfigClearsOnboarding(t *testing.T) {
+	home := t.TempDir()
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	m := readConfig(t, filepath.Join(home, ".claude.json"))
+	if m["hasCompletedOnboarding"] != true {
+		t.Fatalf("hasCompletedOnboarding not set: %v", m["hasCompletedOnboarding"])
+	}
+	if m["theme"] != "dark" {
+		t.Fatalf("default theme not set: %v", m["theme"])
+	}
+}
+
+func TestPreseedClaudeConfigSuppressesInterstitials(t *testing.T) {
+	home := t.TempDir()
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	m := readConfig(t, filepath.Join(home, ".claude.json"))
+	if n, _ := m["fullscreenUpsellSeenCount"].(float64); int(n) < fullscreenUpsellFloor {
+		t.Fatalf("fullscreenUpsellSeenCount not raised: %v", m["fullscreenUpsellSeenCount"])
+	}
+	if m["hasSeenAutoModeEntryWarning"] != true {
+		t.Fatalf("hasSeenAutoModeEntryWarning not set: %v", m["hasSeenAutoModeEntryWarning"])
+	}
+}
+
+func TestPreseedClaudeConfigDoesNotLowerUpsellCount(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".claude.json")
+	data, _ := json.Marshal(map[string]any{"fullscreenUpsellSeenCount": 100000})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := readConfig(t, path)["fullscreenUpsellSeenCount"].(float64); int(got) != 100000 {
+		t.Fatalf("existing higher count was lowered to %v", got)
+	}
+}
+
+func TestPreseedClaudeConfigDoesNotClobberTheme(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".claude.json")
+	data, _ := json.Marshal(map[string]any{"theme": "light"})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+		t.Fatal(err)
+	}
+	m := readConfig(t, path)
+	if m["theme"] != "light" {
+		t.Fatalf("existing theme clobbered: %v", m["theme"])
+	}
+	if m["hasCompletedOnboarding"] != true {
+		t.Fatal("hasCompletedOnboarding not set")
+	}
+}
+
+func TestPreseedClaudeConfigPreservesUnrelatedKeys(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude.json")
 	// Pre-existing config with OAuth/MCP-like state and another project.
@@ -77,7 +139,7 @@ func TestPreseedTrustPreservesUnrelatedKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := PreseedTrust("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,7 +164,7 @@ func TestPreseedTrustPreservesUnrelatedKeys(t *testing.T) {
 	}
 }
 
-func TestPreseedTrustLeavesMalformedUntouched(t *testing.T) {
+func TestPreseedClaudeConfigLeavesMalformedUntouched(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude.json")
 	garbage := []byte("{ this is not json")
@@ -110,7 +172,7 @@ func TestPreseedTrustLeavesMalformedUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Best-effort: returns an error but MUST NOT clobber the file.
-	if err := PreseedTrust("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err == nil {
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err == nil {
 		t.Fatal("expected an error for malformed config")
 	}
 	data, _ := os.ReadFile(path)
@@ -119,7 +181,7 @@ func TestPreseedTrustLeavesMalformedUntouched(t *testing.T) {
 	}
 }
 
-func TestPreseedTrustConcurrent(t *testing.T) {
+func TestPreseedClaudeConfigConcurrent(t *testing.T) {
 	home := t.TempDir()
 	env := envFunc(map[string]string{"HOME": home})
 	workdirs := []string{"/a", "/b", "/c", "/d", "/e"}
@@ -128,7 +190,7 @@ func TestPreseedTrustConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(d string) {
 			defer wg.Done()
-			if err := PreseedTrust(d, env); err != nil {
+			if err := PreseedClaudeConfig(d, env); err != nil {
 				t.Errorf("preseed %s: %v", d, err)
 			}
 		}(wd)
@@ -143,14 +205,14 @@ func TestPreseedTrustConcurrent(t *testing.T) {
 	}
 }
 
-func TestPreseedTrustNullConfigDoesNotPanic(t *testing.T) {
+func TestPreseedClaudeConfigNullConfigDoesNotPanic(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude.json")
 	if err := os.WriteFile(path, []byte("null"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// A literal `null` decodes a map to nil; preseed must re-seed an object, not panic.
-	if err := PreseedTrust("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
+	if err := PreseedClaudeConfig("/home/shed/proj", envFunc(map[string]string{"HOME": home})); err != nil {
 		t.Fatal(err)
 	}
 	if !projectTrusted(readConfig(t, path), "/home/shed/proj") {
@@ -158,14 +220,14 @@ func TestPreseedTrustNullConfigDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestPreseedTrustPreservesLargeInteger(t *testing.T) {
+func TestPreseedClaudeConfigPreservesLargeInteger(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude.json")
 	// 2^53+1 is not exactly representable as float64 — a plain decode would corrupt it.
 	if err := os.WriteFile(path, []byte(`{"bigNum":9007199254740993,"projects":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := PreseedTrust("/p", envFunc(map[string]string{"HOME": home})); err != nil {
+	if err := PreseedClaudeConfig("/p", envFunc(map[string]string{"HOME": home})); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)
@@ -174,8 +236,8 @@ func TestPreseedTrustPreservesLargeInteger(t *testing.T) {
 	}
 }
 
-func TestPreseedTrustNoHomeIsNoOp(t *testing.T) {
-	if err := PreseedTrust("/x", envFunc(map[string]string{})); err == nil {
+func TestPreseedClaudeConfigNoHomeIsNoOp(t *testing.T) {
+	if err := PreseedClaudeConfig("/x", envFunc(map[string]string{})); err == nil {
 		t.Fatal("expected an error (skipped) when neither CLAUDE_CONFIG_DIR nor HOME is set")
 	}
 }
