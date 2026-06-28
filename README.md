@@ -114,6 +114,26 @@ docker pull us-docker.pkg.dev/your-project/your-repo/image:tag
 shed list -vv
 ```
 
+## shed-machine-rc (RC sessions on a native machine)
+
+`shed-machine-rc` is the host-side sibling of the guest `shed-ext-rc` helper: the same RC
+Session Convention engine, installed on a **native machine** (laptop, workstation, tailnet
+host) so shed-remote-agent (and, later, shed-mobile) can bootstrap and watch
+`claude remote-control` sessions on hosts that aren't sheds. It needs `claude` and `tmux`
+on the machine.
+
+```bash
+# macOS
+brew install charliek/tap/shed-machine-rc
+# Linux — after adding the apt.stridelabs.ai repo (see github.com/charliek/apt-charliek)
+sudo apt install shed-machine-rc
+
+# Start a local auto-mode session, print its claude.ai URL, and walk away:
+shed-machine-rc claude
+```
+
+Full reference: [shed-machine-rc](https://charliek.github.io/shed-extensions/reference/shed-machine-rc/).
+
 ## Security Properties
 
 - SSH private keys never enter the VM — only signatures cross the bus
@@ -169,6 +189,7 @@ The SSH backend is auto-detected: if `SSH_AUTH_SOCK` exists on your Mac, it prox
 mise install            # install Go 1.24 and golangci-lint
 make check              # lint + test
 make build-host         # build shed-host-agent (macOS)
+make build-machine-rc   # build shed-machine-rc (host RC CLI)
 make build-guest        # cross-compile guest binaries (Linux amd64 + arm64)
 make docs-serve         # serve docs at http://127.0.0.1:7071
 ```
