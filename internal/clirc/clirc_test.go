@@ -148,6 +148,22 @@ func TestSlugRequired(t *testing.T) {
 	}
 }
 
+func TestRejectsExtraPositionalArgs(t *testing.T) {
+	for _, args := range [][]string{
+		{"list", "extra"},
+		{"kill", "--slug", "abc123", "typo"},
+		{"create", "--kind", "shell", "stray"},
+	} {
+		code, _, errOut := runCLI(machineCfg, &fakeRunner{}, nil, "", args...)
+		if code != 2 {
+			t.Fatalf("%v: code=%d, want 2", args, code)
+		}
+		if !strings.Contains(errOut, "unexpected argument") {
+			t.Errorf("%v: stderr=%q", args, errOut)
+		}
+	}
+}
+
 // The default created-by is resolved in clirc (NOT internal/rc's ToolName fallback),
 // so each binary stamps its own provenance.
 func TestCreateCreatedByDefaultPerBinary(t *testing.T) {
@@ -254,8 +270,8 @@ func TestClaudeVerbNeedsAuthSummary(t *testing.T) {
 	home := t.TempDir()
 	r := &fakeRunner{pane: "You are not logged in. Run claude auth login.\n"}
 	code, out, errOut := runCLI(machineCfg, r, map[string]string{"HOME": home}, "", "claude", "--slug", "abc123")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
+	if code != 1 {
+		t.Fatalf("needs-auth should exit 1 (no usable URL), got code=%d stderr=%q", code, errOut)
 	}
 	if !strings.Contains(out, "not logged in") {
 		t.Errorf("needs-auth state should surface a login hint:\n%s", out)

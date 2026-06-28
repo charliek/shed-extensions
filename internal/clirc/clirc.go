@@ -190,6 +190,19 @@ func resolveMode(permMode string, skip bool, dflt string) (string, error) {
 	return permMode, nil
 }
 
+// parseArgs parses fs and rejects any leftover positional argument (a stray token is
+// almost always a typo; silently dropping it hides the mistake). Returns (exitCode,
+// ok) — when ok is false the caller returns exitCode.
+func parseArgs(cfg Config, d deps, fs *flag.FlagSet, args []string) (int, bool) {
+	if err := fs.Parse(args); err != nil {
+		return 2, false // flag already printed usage to d.stderr
+	}
+	if fs.NArg() > 0 {
+		return fail(cfg, d, fmt.Errorf("%w: unexpected argument %q", rc.ErrBadArgs, fs.Arg(0))), false
+	}
+	return 0, true
+}
+
 func doCreate(cfg Config, d deps, args []string) int {
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
 	fs.SetOutput(d.stderr)
@@ -206,8 +219,8 @@ func doCreate(cfg Config, d deps, args []string) int {
 		permMode      = fs.String("permission-mode", "", "claude --permission-mode (claude kinds): default|acceptEdits|plan|auto|dontAsk|bypassPermissions")
 		skip          = fs.Bool("skip", false, "shorthand for --permission-mode bypassPermissions")
 	)
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := parseArgs(cfg, d, fs, args); !ok {
+		return code
 	}
 
 	mode, err := resolveMode(*permMode, *skip, "")
@@ -253,8 +266,8 @@ func doCreate(cfg Config, d deps, args []string) int {
 func doList(cfg Config, d deps, args []string) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(d.stderr)
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := parseArgs(cfg, d, fs, args); !ok {
+		return code
 	}
 	return printJSON(cfg, d, rc.List(d.runner, nil))
 }
@@ -264,8 +277,8 @@ func runSlugCmd(cfg Config, d deps, name string, args []string, fn func(slug str
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(d.stderr)
 	slug := fs.String("slug", "", "session slug")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := parseArgs(cfg, d, fs, args); !ok {
+		return code
 	}
 	if *slug == "" {
 		return fail(cfg, d, fmt.Errorf("%w: --slug is required", rc.ErrBadArgs))
@@ -306,8 +319,8 @@ func doPrompt(cfg Config, d deps, args []string) int {
 	fs.SetOutput(d.stderr)
 	slug := fs.String("slug", "", "session slug")
 	sessionID := fs.String("session-id", "", "expected SHED_RC_ID (guards a recreated slug)")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := parseArgs(cfg, d, fs, args); !ok {
+		return code
 	}
 	if *slug == "" {
 		return fail(cfg, d, fmt.Errorf("%w: --slug is required", rc.ErrBadArgs))
@@ -340,8 +353,8 @@ func doClaude(cfg Config, d deps, args []string) int {
 		permMode = fs.String("permission-mode", "", "claude --permission-mode (default: auto)")
 		skip     = fs.Bool("skip", false, "shorthand for --permission-mode bypassPermissions")
 	)
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := parseArgs(cfg, d, fs, args); !ok {
+		return code
 	}
 
 	mode, err := resolveMode(*permMode, *skip, claudeDefaultMode)
@@ -386,18 +399,24 @@ func doClaude(cfg Config, d deps, args []string) int {
 
 	fmt.Fprintf(d.stdout, "Started %s session %q — permission-mode=%s (tools run UNATTENDED).\n",
 		session.Kind, session.Slug, mode)
+	// Exit non-zero when the session didn't reach a usable URL, so a script that
+	// runs `shed-machine-rc claude` can tell "ready" from "needs auth / still
+	// starting" — the tmux session is left running either way.
+	exit := 0
 	switch session.State {
 	case rc.StateReady:
 		fmt.Fprintf(d.stdout, "  Watch/steer from your phone or browser: %s\n", session.URL)
 	case rc.StateNeedsAuth:
 		fmt.Fprintf(d.stdout, "  Claude is not logged in on this machine — run `claude` once to authenticate, then retry.\n")
+		exit = 1
 	default:
 		fmt.Fprintf(d.stdout, "  State: %s (no URL yet — `%s probe --slug %s` to recheck).\n",
 			session.State, cfg.ProgName, session.Slug)
+		exit = 1
 	}
 	fmt.Fprintf(d.stdout, "  Attach locally:  tmux attach -t %s\n", session.TmuxSession)
 	fmt.Fprintf(d.stdout, "  Visible to shed-remote-agent / shed-mobile on this machine.\n")
-	return 0
+	return exit
 }
 
 // shortHostname returns the machine's hostname truncated at the first dot ("" on error),
