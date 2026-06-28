@@ -26,3 +26,33 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.10.1
+
+  release-snapshot:
+    name: GoReleaser snapshot (artifact sanity)
+    # macos-latest matches the real release runner: shed-host-agent's darwin build
+    # needs CGO (Touch ID), which can't cross-compile from linux.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: GoReleaser snapshot build
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.15.2
+          args: release --snapshot --clean
+      - name: Assert shed-machine-rc artifacts
+        run: |
+          set -euo pipefail
+          # ids: selectors must keep other builds out of the shed-machine-rc archive
+          # (exactly the one binary), and there must be a .deb per arch named to match
+          # apt-charliek's "shed-machine-rc_*.deb" glob.
+          for tgz in dist/shed-machine-rc_*.tar.gz; do
+            count=$(tar tzf "$tgz" | grep -c '^shed-machine-rc$')
+            [ "$count" = "1" ] || { echo "::error::$tgz must contain exactly the shed-machine-rc binary"; tar tzf "$tgz"; exit 1; }
+          done
+          ls dist/shed-machine-rc_*_amd64.deb dist/shed-machine-rc_*_arm64.deb
+          echo "shed-machine-rc snapshot artifacts OK"

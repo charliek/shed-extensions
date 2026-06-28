@@ -39,6 +39,23 @@ builds:
       - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
       - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
 
+  - id: shed-machine-rc
+    binary: shed-machine-rc
+    main: ./cmd/shed-machine-rc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/charliek/shed-extensions/internal/version.Version={{.Version}}
+      - -X github.com/charliek/shed-extensions/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/charliek/shed-extensions/internal/version.BuildDate={{.Date}}
+
 archives:
   - id: shed-host-agent
     ids:
@@ -51,6 +68,17 @@ archives:
       - src: configs/extensions.example.yaml
         dst: .
         strip_parent: true
+
+  - id: shed-machine-rc
+    ids:
+      - shed-machine-rc
+    formats:
+      - tar.gz
+    name_template: "shed-machine-rc_{{ .Os }}_{{ .Arch }}"
+    # Single-binary archive — no README/LICENSE extras (matches the established
+    # single-binary-archive pattern and keeps the artifact exactly the binary).
+    files:
+      - none*
 
 brews:
   - name: shed-host-agent
@@ -96,6 +124,38 @@ brews:
       Logs: #{var}/log/shed-host-agent.log
     test: |
       system bin/"shed-host-agent", "version"
+
+  - name: shed-machine-rc
+    ids:
+      - shed-machine-rc
+    repository:
+      owner: charliek
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/charliek/shed-extensions"
+    description: "RC session helper for native machines (claude remote-control), sibling of shed-ext-rc"
+    license: "MIT"
+    install: |
+      bin.install "shed-machine-rc"
+    test: |
+      system bin/"shed-machine-rc", "version"
+
+nfpms:
+  - id: shed-machine-rc
+    package_name: shed-machine-rc
+    file_name_template: "shed-machine-rc_{{ .Version }}_{{ .Arch }}"
+    ids:
+      - shed-machine-rc
+    formats:
+      - deb
+    bindir: /usr/local/bin
+    vendor: charliek
+    homepage: "https://github.com/charliek/shed-extensions"
+    maintainer: "Charlie Knudsen"
+    description: "RC session helper for native machines (claude remote-control)"
+    license: "MIT"
+    section: utils
 
 checksum:
   name_template: "checksums.txt"

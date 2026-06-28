@@ -75,6 +75,48 @@ jobs:
           # App-minted token instead of a PAT.
           HOMEBREW_TAP_TOKEN: ${{ steps.tap.outputs.token }}
 
+      # Mint a release-bot App token scoped to charliek/apt-charliek for the
+      # publish dispatch — apt-charliek pulls the new shed-machine-rc .deb from
+      # this release into apt.stridelabs.ai. The App must be installed on
+      # apt-charliek (same App that shed's release dispatches with).
+      - name: Mint an apt-charliek App token
+        if: success()
+        id: apt
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_APP_KEY }}
+          owner: charliek
+          repositories: apt-charliek
+          # POST /repos/.../dispatches requires contents:write.
+          permission-contents: write
+
+      - name: Trigger apt-charliek publish
+        if: success()
+        env:
+          GH_TOKEN: ${{ steps.apt.outputs.token }}
+        run: |
+          # apt-charliek's publish workflow is idempotent (it re-scans every
+          # tracked package on each run), so a missed dispatch self-heals on the
+          # next release — but retry so a transient API blip doesn't leave the new
+          # .deb unindexed until then.
+          for attempt in 1 2 3; do
+            if gh api repos/charliek/apt-charliek/dispatches \
+              --method POST \
+              -f event_type=publish \
+              -F "client_payload[package]=shed-machine-rc" \
+              -F "client_payload[tag]=${{ github.ref_name }}" 2>&1; then
+              echo "::notice::Watch apt publish at https://github.com/charliek/apt-charliek/actions"
+              exit 0
+            fi
+            echo "::warning::dispatch attempt $attempt failed; sleeping $((attempt * 5))s"
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::apt-charliek dispatch failed after 3 attempts"
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+
   docker:
     needs: release
     name: Build and Push Docker Image

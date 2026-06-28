@@ -1,4 +1,4 @@
-.PHONY: build build-host build-guest test lint fmt tidy check clean coverage docs docs-serve
+.PHONY: build build-host build-machine-rc build-guest test lint fmt tidy check clean coverage docs docs-serve
 
 GOARCH ?= $(shell go env GOARCH)
 
@@ -8,12 +8,17 @@ BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS := -ldflags "-X github.com/charliek/shed-extensions/internal/version.Version=$(VERSION) -X github.com/charliek/shed-extensions/internal/version.GitCommit=$(GIT_COMMIT) -X github.com/charliek/shed-extensions/internal/version.BuildDate=$(BUILD_DATE)"
 
 # Build all binaries
-build: build-host build-guest
+build: build-host build-machine-rc build-guest
 
 # Build host agent (macOS, needs CGO for Touch ID)
 build-host:
 	@mkdir -p bin
 	go build $(LDFLAGS) -o bin/shed-host-agent ./cmd/shed-host-agent
+
+# Build shed-machine-rc (host CLI; pure Go, no CGO so it cross-compiles cleanly)
+build-machine-rc:
+	@mkdir -p bin
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/shed-machine-rc ./cmd/shed-machine-rc
 
 # Build guest binaries (Linux, pure Go)
 build-guest:
