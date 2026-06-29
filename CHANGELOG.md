@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.4.8
+
+### Added
+
+- **`shed-machine-rc` — a host-side RC CLI for native machines.** The same RC Session
+  Convention v2 engine as the in-shed `shed-ext-rc`, installed on a laptop / workstation
+  / tailnet host (via Homebrew or apt) so orchestrators (shed-remote-agent, and later
+  shed-mobile) can create, list, probe, prompt, and tear down `claude remote-control`
+  sessions on machines that aren't sheds — same subcommands, same neutral JSON DTO, same
+  exit codes. **Host-only**: it is not baked into shed images, so `SHED_EXT_VERSION` and
+  the shed images are untouched.
+- **`shed-machine-rc claude` convenience verb.** Start a local `claude` remote-control
+  session in the autonomous `auto` posture (`--skip` → `bypassPermissions`), wait until
+  it is ready, print its `claude.ai` URL, and return — leaving the tmux session live and
+  watchable from your phone, shed-remote-agent, or shed-mobile. Exits non-zero if the
+  session never reaches a usable URL (e.g. claude isn't logged in on the machine).
+- **Homebrew + apt distribution.** GoReleaser publishes a `shed-machine-rc` formula to
+  `charliek/homebrew-tap` and a `shed-machine-rc_<ver>_<arch>.deb` (registered in
+  `charliek/apt-charliek`, served from `apt.stridelabs.ai`). A `release-snapshot` CI job
+  asserts the single-binary archive + `.deb` shape on every PR.
+
+### Changed
+
+- **The `shed-ext-rc` command dispatcher moved into a shared `internal/clirc` package**
+  so the guest (`shed-ext-rc`) and host (`shed-machine-rc`) binaries share one dispatch,
+  one subcommand set, and one JSON DTO contract; `shed-ext-rc` behavior is unchanged.
+  The dispatcher now also rejects unexpected positional arguments (a stray token is a
+  typo, not silently dropped).
+
 ## v0.4.7
 
 ### Added
