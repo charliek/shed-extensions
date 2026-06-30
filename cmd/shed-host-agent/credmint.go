@@ -13,29 +13,33 @@ import (
 	"time"
 
 	sdk "github.com/charliek/shed/sdk"
+	sdkbootstrap "github.com/charliek/shed/sdk/bootstrap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // CredentialMinter bootstraps the host-agent's own credentials-scoped token over
-// a server's SSH _bootstrap channel, using the agent's SSH identity key. This
-// replaces a pasted credentials_token: the agent authenticates with a key that
-// is already on the server's allowlist (the same key `shed server add` used),
-// and the server mints a short-TTL token bound to that key.
+// a server's SSH _bootstrap channel by invoking the system ssh client (via
+// sdk/bootstrap). The agent authenticates with a key already on the server's
+// allowlist (the same key `shed server add` used) — resolved by ssh from the
+// agent, macOS Keychain, 1Password/Secretive IdentityAgent, hardware keys, or
+// ~/.ssh/config — and the server mints a short-TTL token bound to that key. No
+// private key material is read by the host-agent itself.
 type CredentialMinter struct {
-	signerPath     string // the agent's SSH identity key (e.g. ~/.ssh/id_ed25519)
 	knownHostsPath string // where the server's SSH host key is pinned (~/.shed/known_hosts)
 
-	mu     sync.Mutex
-	signer ssh.Signer // cached after the first successful load (parsed once, used for every mint)
+	// bootstrapRun runs the SSH bootstrap exchange; a field so tests can inject a
+	// fake without spawning ssh or standing up a server. Defaults to sdkbootstrap.Run.
+	bootstrapRun func(context.Context, sdkbootstrap.Params) (sdk.Bundle, error)
 }
 
-// NewCredentialMinter builds a minter from the SSH identity key path and the
-// known_hosts file that pins server host keys. Both paths are tilde-expanded.
-func NewCredentialMinter(signerPath, knownHostsPath string) *CredentialMinter {
+// NewCredentialMinter builds a minter from the known_hosts file that pins server
+// host keys (tilde-expanded). The SSH identity is resolved by the system ssh
+// client (agent/Keychain/IdentityAgent/config), not read from a fixed key file.
+func NewCredentialMinter(knownHostsPath string) *CredentialMinter {
 	return &CredentialMinter{
-		signerPath:     expandTilde(signerPath),
 		knownHostsPath: expandTilde(knownHostsPath),
+		bootstrapRun:   sdkbootstrap.Run,
 	}
 }
 
@@ -47,80 +51,55 @@ const (
 )
 
 // Mint bootstraps a fresh token of the given scope for t over its SSH endpoint
-// and returns the token with its expiry. The host key is verified against the pin
-// already in known_hosts (the same trust `shed server add` established), so this
-// never trusts an unpinned server.
+// and returns the token with its expiry. ssh verifies the server's host key
+// against the pin already in known_hosts (the same trust `shed server add`
+// established), so this never trusts an unpinned server.
 func (m *CredentialMinter) Mint(ctx context.Context, t ServerTarget, scope string) (string, time.Time, error) {
-	signer, err := m.cachedSigner()
-	if err != nil {
+	// Pre-check that the server is pinned. This is NOT a safety latch — a missing
+	// pin is already non-terminal/retryable downstream (ssh + sdk/bootstrap
+	// classify it as a verification failure, never as a host-key mismatch). It buys
+	// two things: an actionable "run shed server add" error instead of ssh's opaque
+	// "Host key verification failed", and skipping a doomed ssh spawn.
+	if err := knownHostsPinned(m.knownHostsPath, t.SSHHost, t.SSHPort); err != nil {
 		return "", time.Time{}, err
 	}
-	pin, err := knownHostsPin(m.knownHostsPath, t.SSHHost, t.SSHPort)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	addr := net.JoinHostPort(t.SSHHost, strconv.Itoa(t.SSHPort))
-	bundle, err := sdk.Bootstrap(ctx, addr, signer, pin, scope, "host-agent")
+	bundle, err := m.bootstrapRun(ctx, sdkbootstrap.Params{
+		Host:           t.SSHHost,
+		Port:           t.SSHPort,
+		KnownHostsPath: m.knownHostsPath,
+		Scope:          scope,
+		ClientKind:     "host-agent",
+	})
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("bootstrapping %s token for %q: %w", scope, t.Name, err)
 	}
 	return bundle.Token, bundle.ExpiresAt, nil
 }
 
-// cachedSigner returns the agent's SSH identity signer, parsing the key file on
-// the first call and caching it (one shared signer mints for every server). It
-// caches only on success, so a key that appears later can still be picked up.
-func (m *CredentialMinter) cachedSigner() (ssh.Signer, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.signer != nil {
-		return m.signer, nil
-	}
-	s, err := loadSSHSigner(m.signerPath)
-	if err != nil {
-		return nil, err
-	}
-	m.signer = s
-	return s, nil
-}
-
-// loadSSHSigner reads and parses an unencrypted private key into a signer. A
-// passphrase-protected key is rejected with a clear error (the daemon has no way
-// to prompt) — the agent's identity key must be usable non-interactively.
-func loadSSHSigner(path string) (ssh.Signer, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading ssh identity key %s: %w", path, err)
-	}
-	signer, err := ssh.ParsePrivateKey(data)
-	if err != nil {
-		if _, ok := err.(*ssh.PassphraseMissingError); ok {
-			return nil, fmt.Errorf("ssh identity key %s is passphrase-protected; the host-agent needs an unencrypted key", path)
-		}
-		return nil, fmt.Errorf("parsing ssh identity key %s: %w", path, err)
-	}
-	return signer, nil
-}
-
-// knownHostsPin returns the SHA-256 fingerprint ("SHA256:...") of the host key
-// pinned for host:port in the known_hosts file, in the form sdk.Bootstrap
-// expects. It is the same trust anchor `shed server add` wrote via AddKnownHost.
-// Returns an error when the file is unreadable or has no entry for the endpoint.
-func knownHostsPin(knownHostsPath, host string, port int) (string, error) {
+// knownHostsPinned reports whether the known_hosts file has a usable (non-revoked,
+// non-CA) host-key entry pinning host:port — the same trust anchor `shed server
+// add` wrote via AddKnownHost. It is a presence predicate: ssh re-verifies the pin
+// authoritatively during the exchange, so only the existence of an entry matters
+// here, not its value. Returns nil when one is present, and an error when the file
+// is unreadable, unparseable, or has no entry for the endpoint. (ssh prints the
+// same "Host key verification failed" for a missing entry and a garbled file, so
+// this in-process read is the only reliable way to give the actionable "run `shed
+// server add` first" message instead.)
+func knownHostsPinned(knownHostsPath, host string, port int) error {
 	data, err := os.ReadFile(knownHostsPath)
 	if err != nil {
-		return "", fmt.Errorf("reading known_hosts %s: %w", knownHostsPath, err)
+		return fmt.Errorf("reading known_hosts %s: %w", knownHostsPath, err)
 	}
 	// knownhosts.Normalize yields the stored form: "[host]:port" for a non-22
 	// port, bare "host" for port 22 — matching how OpenSSH (and shed) records it.
 	want := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
 	for len(data) > 0 {
-		marker, hosts, pubKey, _, rest, err := ssh.ParseKnownHosts(data)
+		marker, hosts, _, _, rest, err := ssh.ParseKnownHosts(data)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return "", fmt.Errorf("parsing known_hosts %s: %w", knownHostsPath, err)
+			return fmt.Errorf("parsing known_hosts %s: %w", knownHostsPath, err)
 		}
 		data = rest
 		// Skip marked lines: a @revoked key must never be used as a pin, and a
@@ -130,11 +109,11 @@ func knownHostsPin(knownHostsPath, host string, port int) (string, error) {
 		}
 		for _, h := range hosts {
 			if h == want {
-				return ssh.FingerprintSHA256(pubKey), nil
+				return nil
 			}
 		}
 	}
-	return "", fmt.Errorf("no host key pinned for %s in %s (run `shed server add` first)", want, knownHostsPath)
+	return fmt.Errorf("no host key pinned for %s in %s (run `shed server add` first)", want, knownHostsPath)
 }
 
 const (
@@ -300,7 +279,7 @@ func (s *credentialSource) doMint(call *inflightMint) {
 	case err == nil:
 		s.token, s.expiry = tok, exp
 		call.token, call.expiry = tok, exp // error paths leave call.token "" (zero)
-	case errors.Is(err, sdk.ErrHostKeyMismatch):
+	case errors.Is(err, sdkbootstrap.ErrHostKeyMismatch):
 		s.terminalErr = fmt.Errorf("refusing to broker %q: SSH host key pin mismatch (possible MITM): %w", s.target.Name, err)
 		err = s.terminalErr
 	}

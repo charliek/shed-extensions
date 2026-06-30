@@ -138,7 +138,7 @@ type ServerTarget struct {
 	// when URL is https. Empty for plain HTTP.
 	TLSFingerprint string
 	// SSHHost / SSHPort are the server's SSH endpoint, used to mint a credentials
-	// token over the _bootstrap channel (sdk.Bootstrap). Every shed server has an
+	// token over the _bootstrap channel (sdk/bootstrap.Run). Every shed server has an
 	// SSH endpoint (it is how sheds are reached), so this is NOT the open/secure
 	// signal — IsSecure (the https scheme) is. SSHPort == 0 only when the discovery
 	// entry omitted ssh_port, in which case the agent can't self-mint regardless.

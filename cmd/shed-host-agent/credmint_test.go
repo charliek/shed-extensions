@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -16,62 +16,28 @@ import (
 	"time"
 
 	sdk "github.com/charliek/shed/sdk"
+	sdkbootstrap "github.com/charliek/shed/sdk/bootstrap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// writeTestKey generates an ed25519 key, writes its private half (OpenSSH PEM)
-// to dir/name, and returns the path plus the SSH public key.
-func writeTestKey(t *testing.T, dir, name string) (string, ssh.PublicKey) {
+// testHostKey generates a fresh ed25519 SSH public key for use in known_hosts pins.
+func testHostKey(t *testing.T) ssh.PublicKey {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatal(err)
-	}
-	block, err := ssh.MarshalPrivateKey(priv, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0600); err != nil {
 		t.Fatal(err)
 	}
 	pub, err := ssh.NewPublicKey(priv.Public())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return path, pub
+	return pub
 }
 
-func TestLoadSSHSigner(t *testing.T) {
+func TestKnownHostsPinned(t *testing.T) {
 	dir := t.TempDir()
-	path, pub := writeTestKey(t, dir, "id_ed25519")
-
-	signer, err := loadSSHSigner(path)
-	if err != nil {
-		t.Fatalf("loadSSHSigner: %v", err)
-	}
-	if got, want := ssh.FingerprintSHA256(signer.PublicKey()), ssh.FingerprintSHA256(pub); got != want {
-		t.Errorf("loaded signer key = %q, want %q", got, want)
-	}
-}
-
-func TestLoadSSHSignerErrors(t *testing.T) {
-	if _, err := loadSSHSigner(filepath.Join(t.TempDir(), "nope")); err == nil {
-		t.Error("expected an error for a missing key file")
-	}
-	bad := filepath.Join(t.TempDir(), "bad")
-	if err := os.WriteFile(bad, []byte("not a key"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadSSHSigner(bad); err == nil {
-		t.Error("expected an error for an unparseable key")
-	}
-}
-
-func TestKnownHostsPin(t *testing.T) {
-	dir := t.TempDir()
-	_, hostPub := writeTestKey(t, dir, "hostkey")
+	hostPub := testHostKey(t)
 	const host, port = "mini3", 2222
 
 	// Write a known_hosts line exactly as OpenSSH/shed would, keyed by [host]:port.
@@ -81,18 +47,14 @@ func TestKnownHostsPin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pin, err := knownHostsPin(khPath, host, port)
-	if err != nil {
-		t.Fatalf("knownHostsPin: %v", err)
-	}
-	if want := ssh.FingerprintSHA256(hostPub); pin != want {
-		t.Errorf("pin = %q, want %q", pin, want)
+	if err := knownHostsPinned(khPath, host, port); err != nil {
+		t.Errorf("knownHostsPinned on a pinned host: %v", err)
 	}
 }
 
-func TestKnownHostsPinErrors(t *testing.T) {
+func TestKnownHostsPinnedErrors(t *testing.T) {
 	dir := t.TempDir()
-	_, hostPub := writeTestKey(t, dir, "hostkey")
+	hostPub := testHostKey(t)
 
 	// A known_hosts that pins a different host than the one we query.
 	khPath := filepath.Join(dir, "known_hosts")
@@ -101,28 +63,122 @@ func TestKnownHostsPinErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := knownHostsPin(filepath.Join(dir, "absent"), "mini3", 2222); err == nil {
+	if err := knownHostsPinned(filepath.Join(dir, "absent"), "mini3", 2222); err == nil {
 		t.Error("expected an error for a missing known_hosts file")
 	}
-	if _, err := knownHostsPin(khPath, "mini3", 2222); err == nil {
+	if err := knownHostsPinned(khPath, "mini3", 2222); err == nil {
 		t.Error("expected an error when the host has no pinned key")
 	}
 }
 
-func TestKnownHostsPinSkipsRevoked(t *testing.T) {
+func TestKnownHostsPinnedSkipsRevoked(t *testing.T) {
 	dir := t.TempDir()
-	_, hostPub := writeTestKey(t, dir, "hostkey")
+	hostPub := testHostKey(t)
 	const host, port = "mini3", 2222
 	addr := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
 
-	// A @revoked line for the exact host must NOT be returned as a usable pin.
+	// A @revoked line for the exact host must NOT count as a usable pin.
 	khPath := filepath.Join(dir, "known_hosts")
 	line := "@revoked " + knownhosts.Line([]string{addr}, hostPub) + "\n"
 	if err := os.WriteFile(khPath, []byte(line), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := knownHostsPin(khPath, host, port); err == nil {
-		t.Error("a @revoked host key must not be used as a pin")
+	if err := knownHostsPinned(khPath, host, port); err == nil {
+		t.Error("a @revoked host key must not count as a pin")
+	}
+}
+
+// writePinnedKnownHosts writes a known_hosts pinning a fresh host key for
+// host:port and returns the file path plus the matching ServerTarget.
+func writePinnedKnownHosts(t *testing.T, host string, port int) (string, ServerTarget) {
+	t.Helper()
+	dir := t.TempDir()
+	hostPub := testHostKey(t)
+	addr := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
+	khPath := filepath.Join(dir, "known_hosts")
+	if err := os.WriteFile(khPath, []byte(knownhosts.Line([]string{addr}, hostPub)+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return khPath, ServerTarget{Name: "s", SSHHost: host, SSHPort: port}
+}
+
+func TestCredentialMinterMint(t *testing.T) {
+	const host, port = "mini3", 2222
+
+	t.Run("success passes params and returns the token", func(t *testing.T) {
+		khPath, target := writePinnedKnownHosts(t, host, port)
+		m := NewCredentialMinter(khPath)
+		exp := time.Now().Add(time.Hour)
+		m.bootstrapRun = func(_ context.Context, p sdkbootstrap.Params) (sdk.Bundle, error) {
+			if p.Host != host || p.Port != port || p.KnownHostsPath != khPath ||
+				p.Scope != scopeCredentials || p.ClientKind != "host-agent" {
+				t.Errorf("unexpected bootstrap params: %+v", p)
+			}
+			return sdk.Bundle{Token: "tok", ExpiresAt: exp}, nil
+		}
+		tok, gotExp, err := m.Mint(context.Background(), target, scopeCredentials)
+		if err != nil {
+			t.Fatalf("Mint: %v", err)
+		}
+		if tok != "tok" || !gotExp.Equal(exp) {
+			t.Errorf("Mint = %q, %v; want tok, %v", tok, gotExp, exp)
+		}
+	})
+
+	t.Run("a host-key mismatch propagates as terminal", func(t *testing.T) {
+		khPath, target := writePinnedKnownHosts(t, host, port)
+		m := NewCredentialMinter(khPath)
+		m.bootstrapRun = func(context.Context, sdkbootstrap.Params) (sdk.Bundle, error) {
+			return sdk.Bundle{}, fmt.Errorf("ssh: %w", sdkbootstrap.ErrHostKeyMismatch)
+		}
+		if _, _, err := m.Mint(context.Background(), target, scopeControl); !errors.Is(err, sdkbootstrap.ErrHostKeyMismatch) {
+			t.Errorf("err = %v, want it to wrap ErrHostKeyMismatch", err)
+		}
+	})
+
+	t.Run("a missing pin is non-terminal and never invokes ssh", func(t *testing.T) {
+		khPath, _ := writePinnedKnownHosts(t, host, port)
+		m := NewCredentialMinter(khPath)
+		ran := false
+		m.bootstrapRun = func(context.Context, sdkbootstrap.Params) (sdk.Bundle, error) {
+			ran = true
+			return sdk.Bundle{Token: "x"}, nil
+		}
+		// A different, unpinned server: the pre-check must fail before ssh runs.
+		_, _, err := m.Mint(context.Background(), ServerTarget{Name: "s", SSHHost: "unpinned", SSHPort: 1}, scopeCredentials)
+		if err == nil {
+			t.Fatal("expected an error for an unpinned server")
+		}
+		if errors.Is(err, sdkbootstrap.ErrHostKeyMismatch) {
+			t.Error("a missing pin must not be a terminal mismatch")
+		}
+		if ran {
+			t.Error("bootstrapRun must not run when the server is not pinned")
+		}
+	})
+}
+
+// TestCredentialSourceMinterMismatchTerminal exercises the full chain: a real
+// CredentialMinter whose ssh exchange reports a host-key change must latch the
+// credentialSource terminal (no retry). This closes the gap that
+// TestCredentialSourcePinMismatchTerminal only covers via a fake minter.
+func TestCredentialSourceMinterMismatchTerminal(t *testing.T) {
+	khPath, target := writePinnedKnownHosts(t, "mini3", 2222)
+	m := NewCredentialMinter(khPath)
+	var calls int32
+	m.bootstrapRun = func(context.Context, sdkbootstrap.Params) (sdk.Bundle, error) {
+		atomic.AddInt32(&calls, 1)
+		return sdk.Bundle{}, fmt.Errorf("ssh: %w", sdkbootstrap.ErrHostKeyMismatch)
+	}
+	s := newCredentialSource(context.Background(), m, target, scopeCredentials)
+	if _, err := s.Token(); err == nil {
+		t.Fatal("expected a terminal error on a host-key mismatch")
+	}
+	if _, err := s.Token(); err == nil {
+		t.Error("the terminal error must persist (no re-mint)")
+	}
+	if c := atomic.LoadInt32(&calls); c != 1 {
+		t.Errorf("bootstrapRun calls = %d, want 1 (a mismatch must never be retried)", c)
 	}
 }
 
@@ -176,7 +232,7 @@ func TestCredentialSourceCachesAndReMints(t *testing.T) {
 }
 
 func TestCredentialSourcePinMismatchTerminal(t *testing.T) {
-	fm := &fakeMinter{results: []mintResult{{err: fmt.Errorf("bootstrap: %w", sdk.ErrHostKeyMismatch)}}}
+	fm := &fakeMinter{results: []mintResult{{err: fmt.Errorf("bootstrap: %w", sdkbootstrap.ErrHostKeyMismatch)}}}
 	s := newCredentialSource(context.Background(), fm, ServerTarget{Name: "s"}, scopeCredentials)
 
 	if _, err := s.Token(); err == nil {
