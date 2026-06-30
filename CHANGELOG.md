@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.9
+
+### Fixed
+
+- **Secure-mode token bootstrap now works with passphrase-protected and
+  agent-only SSH keys.** The host-agent read `~/.ssh/id_ed25519` directly and
+  failed against an `auth.mode: secure` server when the key was
+  passphrase-protected or lived only in an agent (1Password, Secretive,
+  hardware), 401-ing every plugin listener so all extensions went dead. It now
+  mints its token over the system `ssh` client (via `sdk/bootstrap`,
+  `sdk v0.3.0`), resolving the identity from your agent, macOS Keychain,
+  `IdentityAgent`, hardware key, or `~/.ssh/config` — no unencrypted on-disk key
+  required. Adds a "Secure-mode token bootstrap" section to
+  `docs/reference/ssh-agent.md` with `brew services`/launchd `IdentityAgent`
+  guidance ([#46](https://github.com/charliek/shed-extensions/pull/46), fixes
+  [#45](https://github.com/charliek/shed-extensions/issues/45)).
+
 ## v0.4.8
 
 ### Added
