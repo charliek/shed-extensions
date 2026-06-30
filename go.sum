@@ -26,8 +26,8 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 h1:p8ogvvLugcR/zLBXTXrTkj0RYBU
 github.com/aws/aws-sdk-go-v2/service/sts v1.41.10/go.mod h1:60dv0eZJfeVXfbT1tFJinbHrDfSJ2GZl4Q//OSSNAVw=
 github.com/aws/smithy-go v1.24.2 h1:FzA3bu/nt/vDvmnkg+R8Xl46gmzEDam6mZ1hzmwXFng=
 github.com/aws/smithy-go v1.24.2/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
-github.com/charliek/shed/sdk v0.2.1 h1:6rGbKygwxKGEgeGWTxD2uyduMuSlSgd0fqLygVF6g9E=
-github.com/charliek/shed/sdk v0.2.1/go.mod h1:x9/BPafc0nNoBbsHiy7M2/OWteczKgEOFV95f7tg9E8=
+github.com/charliek/shed/sdk v0.3.0 h1:ZB8+UEPtk4vB6bZwGedn93J6U6VRYjub9oBr6b0p7V4=
+github.com/charliek/shed/sdk v0.3.0/go.mod h1:x9/BPafc0nNoBbsHiy7M2/OWteczKgEOFV95f7tg9E8=
 github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
 github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

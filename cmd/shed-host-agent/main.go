@@ -126,12 +126,14 @@ func main() {
 	// decisions. It's the program's public interface, so it's not gated on
 	// config; with no consumer connected, delegated approvals fail closed.
 	// Credentials minter: for a secure (https) server the agent mints its own
-	// credentials token over the server's SSH _bootstrap channel using its SSH
-	// identity key, verified against the host key shed already pinned in
-	// ~/.shed/known_hosts. An open-mode (http) server needs no token and keeps its
-	// (empty) configured token — see shouldMint. The same minter backs the desktop's
-	// token.get (control tokens), so build it before the desktop.
-	minter := NewCredentialMinter("~/.ssh/id_ed25519", "~/.shed/known_hosts")
+	// credentials token over the server's SSH _bootstrap channel via the system ssh
+	// client, whose host key is verified against the pin shed already wrote to
+	// ~/.shed/known_hosts. The SSH identity is resolved by ssh (agent / Keychain /
+	// IdentityAgent / ~/.ssh/config), so no key file is read here. An open-mode
+	// (http) server needs no token and keeps its (empty) configured token — see
+	// shouldMint. The same minter backs the desktop's token.get (control tokens),
+	// so build it before the desktop.
+	minter := NewCredentialMinter("~/.shed/known_hosts")
 
 	// token.get resolves servers from the shed CLI config (the discovery source, or
 	// its default in single-server mode) and mints CONTROL tokens for any allowlisted
