@@ -1,5 +1,7 @@
 # Releasing shed-extensions
 
+> **SUPERSEDED** — do not cut releases from this repo after the monorepo import merges (charliek/shed#<PR>, number TBD). The release pipeline below remains functional only as a hotfix escape hatch until this repo is archived.
+
 The general release framework is `cc-plugins:release-workflows`; this
 file documents what's specific to this repo.
 

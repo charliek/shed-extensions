@@ -1,5 +1,13 @@
 # shed-extensions
 
+> ## ⚠️ Moved to the shed monorepo
+>
+> Development of shed-extensions has moved into [charliek/shed](https://github.com/charliek/shed) (see `docs/discovery/monorepo-consolidation.md` there for the design).
+>
+> All releases after **v0.4.9** ship from the shed repo. Version numbers jump to shed's release line (v0.4.9 → v0.7.x+) — a forward jump, which is safe for Homebrew and apt upgrades.
+>
+> This repository will be **archived** once the first monorepo release lands, and stays browsable for history. Existing installs keep working; `brew upgrade` / `apt upgrade` pick up future versions from the same formula/package names.
+
 Secure credential brokering for [shed](https://github.com/charliek/shed) microVM development environments.
 
 Credentials never enter the VM — all signing and secret resolution happens on the host, mediated by shed's plugin message bus. Standard tools (`git push`, AWS SDKs, `ssh`, `docker pull`) work without changes inside the VM.
